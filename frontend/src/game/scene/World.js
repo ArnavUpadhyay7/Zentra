@@ -6,16 +6,24 @@ export default class World extends Phaser.Scene {
   }
 
   preload() {
+    this.load.on("loaderror", (file) => {
+      console.error("Phaser load error:", file.key, file.src);
+    });
+
+    // Dungeon map
     this.load.tilemapTiledJSON("map", "/assets/maps/tiny-dungeon.json");
     this.load.image("tiles", "/assets/tiles/dungeon.png");
+
+    // Indoor map (roguelike-rpg-pack spritesheet)
+    this.load.tilemapTiledJSON("indoor", "/assets/maps/indoor.json");
+    this.load.image("indoorTiles", "/assets/tiles/roguelikeSheet_transparent.png");
+
+    // All 6 character spritesheets
     for (let i = 1; i <= 6; i++) {
       this.load.spritesheet(
         `player${i}`,
         `/assets/characters/Character_${i}.png`,
-        {
-          frameWidth: 16,
-          frameHeight: 16,
-        },
+        { frameWidth: 16, frameHeight: 16 },
       );
     }
   }
@@ -71,52 +79,73 @@ export default class World extends Phaser.Scene {
     label.setDepth(10);
     label.setOrigin(0.5, 1);
 
-    // Store both sprite and label together under this player's socket id
     this.otherPlayers[id] = { sprite, label, charIndex: data.charIndex };
   }
 
   create() {
-    // ── Map ───────────────────────────────────────────────────────────────────
-    const map = this.make.tilemap({
-      key: "map",
-      tileWidth: 16,
-      tileHeight: 16,
-    });
-    const tileset = map.addTilesetImage("tileset", "tiles", 16, 16, 0, 0);
-    const dungeonLayer = map.createLayer("Dungeon", tileset, 0, 0);
-    const floorTileIds = [49, 50, 51, 52, 53, 54, 58, 60];
-    dungeonLayer.setCollisionByExclusion(floorTileIds, true);
+    // ── Read registry ─────────────────────────────────────────────────────────
+    const socket      = this.registry.get("socket");
+    const myId        = socket.id;
+    const myCharIndex = this.registry.get("charIndex") || 1;
+    const username    = this.registry.get("username") || localStorage.getItem("vs_username") || "Player";
+    const roomId      = this.registry.get("roomId");
+    const mapId       = this.registry.get("mapId") || "indoor";
 
-    // ── Animations for all 6 characters ──────────────────────────────────────
-    // Instead of hardcoding 5 animation keys, we loop and create indexed keys
-    // for all 6 characters at once. Total: 30 animations (5 × 6)
+    // ── Map setup ─────────────────────────────────────────────────────────────
+    let map, collisionLayer;
+
+    if (mapId === "indoor") {
+      map = this.make.tilemap({ key: "indoor" });
+
+      // roguelike-rpg-pack: margin=0, spacing=1
+      const tileset = map.addTilesetImage(
+        "roguelikeSheet_transparent",
+        "indoorTiles"
+      );
+      if (!tileset) {
+        console.error("Failed to load indoor tileset — check image key and JSON tileset name match");
+      }
+
+      // Floor layer — collide on walls (beige border tiles) and void (0)
+      // Walkable = orange brick (120), stone (121), beige inner floor (698, 700)
+      // Everything else (0 = void, 699/701/702/757-759/869-875 = wall tiles) blocks
+      collisionLayer = map.createLayer("Floor", tileset, 0, 0);
+      const walkableTileIds = [120, 121, 698, 700];
+      collisionLayer.setCollisionByExclusion(walkableTileIds, true);
+
+      // Visual-only layers stacked on top
+      map.createLayer("Carpet",  tileset, 0, 0);
+      map.createLayer("Objects", tileset, 0, 0);
+      map.createLayer("Details", tileset, 0, 0);
+
+    } else {
+      // tiny-dungeon
+      map = this.make.tilemap({ key: "map" });
+      const tileset = map.addTilesetImage("tileset", "tiles");
+      collisionLayer = map.createLayer("Dungeon", tileset, 0, 0);
+      collisionLayer.setCollisionByExclusion([49, 50, 51, 52, 53, 54, 58, 60], true);
+    }
+
+    // ── Animations ────────────────────────────────────────────────────────────
     for (let i = 1; i <= 6; i++) this.createAnims(i);
 
-    // ── Read registry values set by Game.jsx ──────────────────────────────────
-    // Game.jsx passes socket, roomId, myId, charIndex via Phaser's registry
-    // registry is a key-value store that survives scene transitions
-    const socket = this.registry.get("socket");
-    const myId = socket.id;
-    const myCharIndex = this.registry.get("charIndex") || 1;
-    const username =
-      this.registry.get("username") ||
-      localStorage.getItem("vs_username") ||
-      "Player";
+    // ── Player ────────────────────────────────────────────────────────────────
+    // Indoor: spawn in centre of main hall (map 52x40, hall centre ~pixel 416,240)
+    const defaultSpawnX = mapId === "indoor" ? 416 : Math.floor(map.widthInPixels  / 2);
+    const defaultSpawnY = mapId === "indoor" ? 240 : Math.floor(map.heightInPixels / 2);
+    const spawnX = this.registry.get("spawnX") || defaultSpawnX;
+    const spawnY = this.registry.get("spawnY") || defaultSpawnY;
 
-    // ── My player sprite ──────────────────────────────────────────────────────
-    // Now uses myCharIndex instead of hardcoded "player" texture
-    this.player = this.physics.add.sprite(256, 160, `player${myCharIndex}`);
+    this.player = this.physics.add.sprite(spawnX, spawnY, `player${myCharIndex}`);
     this.player.setScale(1.5);
     this.player.body.setSize(10, 10);
     this.player.body.setOffset(3, 6);
     this.player.body.setCollideWorldBounds(true);
-    this.physics.add.collider(this.player, dungeonLayer);
+    this.physics.add.collider(this.player, collisionLayer);
     this.player.play(`idle-down-${myCharIndex}`);
-
-    // Store charIndex on the scene so update() can use it for animation keys
     this.myCharIndex = myCharIndex;
 
-    // ── My nametag ────────────────────────────────────────────────────────────
+    // ── Nametag ───────────────────────────────────────────────────────────────
     this.playerLabel = this.add.text(0, 0, username, {
       fontSize: "6px",
       fontFamily: "monospace",
@@ -128,13 +157,9 @@ export default class World extends Phaser.Scene {
     this.playerLabel.setDepth(10);
     this.playerLabel.setOrigin(0.5, 1);
 
-    // ── Other players map ─────────────────────────────────────────────────────
-    // Keyed by socket id: { [id]: { sprite, label, charIndex } }
+    // ── Other players ─────────────────────────────────────────────────────────
     this.otherPlayers = {};
 
-    // Request current players already in the room
-    // This handles the case where you join after others are already present
-    const roomId = this.registry.get("roomId");
     socket.emit("get-room-state", { roomId });
 
     socket.once("room-state", ({ players }) => {
@@ -145,19 +170,14 @@ export default class World extends Phaser.Scene {
       });
     });
 
-    // ── Socket events ─────────────────────────────────────────────────────────
-
-    // "player-joined" fires when ANY player joins — including yourself initially
-    // The server sends the full players object so we can catch up on everyone
     socket.on("player-joined", ({ players }) => {
       Object.entries(players).forEach(([id, data]) => {
-        if (id === myId) return; // skip ourselves
-        if (this.otherPlayers[id]) return; // already rendered, skip
+        if (id === myId) return;
+        if (this.otherPlayers[id]) return;
         this.addOtherPlayer(id, data);
       });
     });
 
-    // "player-left" fires when someone disconnects
     socket.on("player-left", ({ id }) => {
       if (this.otherPlayers[id]) {
         this.otherPlayers[id].sprite.destroy();
@@ -169,10 +189,8 @@ export default class World extends Phaser.Scene {
     socket.on("player-moved", ({ id, x, y, direction, flipX }) => {
       const other = this.otherPlayers[id];
       if (!other) return;
-
       other.sprite.setPosition(x, y);
       other.sprite.setFlipX(flipX);
-
       if (direction === "idle") {
         other.sprite.play(`idle-down-${other.charIndex}`, true);
       } else {
@@ -180,7 +198,7 @@ export default class World extends Phaser.Scene {
       }
     });
 
-    // ── Camera ────────────────────────────────────────────────────────────────
+    // ── Camera — follow player, zoom 4x ──────────────────────────────────────
     this.cameras.main.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
     this.cameras.main.setZoom(3);
     this.cameras.main.startFollow(this.player, true);
@@ -188,16 +206,14 @@ export default class World extends Phaser.Scene {
     // ── Input ─────────────────────────────────────────────────────────────────
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd = {
-      up: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-      down: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-      left: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+      up:    this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+      down:  this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+      left:  this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
       right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
     };
 
-    // ── Movement emission tracking ────────────────────────────────────────────
-    // We only emit when position actually changes, not every frame
-    this.lastEmittedX = null;
-    this.lastEmittedY = null;
+    this.lastEmittedX  = null;
+    this.lastEmittedY  = null;
     this.lastDirection = null;
   }
 
@@ -205,12 +221,11 @@ export default class World extends Phaser.Scene {
     const speed = 65;
     this.player.body.setVelocity(0, 0);
 
-    const left = this.cursors.left.isDown || this.wasd.left.isDown;
+    const left  = this.cursors.left.isDown  || this.wasd.left.isDown;
     const right = this.cursors.right.isDown || this.wasd.right.isDown;
-    const up = this.cursors.up.isDown || this.wasd.up.isDown;
-    const down = this.cursors.down.isDown || this.wasd.down.isDown;
+    const up    = this.cursors.up.isDown    || this.wasd.up.isDown;
+    const down  = this.cursors.down.isDown  || this.wasd.down.isDown;
 
-    // Track current direction for emitting to other players
     let direction = "idle";
 
     if (left) {
@@ -239,12 +254,10 @@ export default class World extends Phaser.Scene {
       this.player.body.velocity.normalize().scale(speed);
     }
 
-    // ── Emit movement only when position or direction changes ─────────────────
-    // Comparing to last emitted values avoids flooding the server at 60fps
     const moved =
       this.player.x !== this.lastEmittedX ||
       this.player.y !== this.lastEmittedY ||
-      direction !== this.lastDirection;
+      direction      !== this.lastDirection;
 
     if (moved) {
       const socket = this.registry.get("socket");
@@ -252,14 +265,14 @@ export default class World extends Phaser.Scene {
 
       socket.emit("player-move", {
         roomId,
-        x: this.player.x,
-        y: this.player.y,
+        x:     this.player.x,
+        y:     this.player.y,
         direction,
         flipX: this.player.flipX,
       });
 
-      this.lastEmittedX = this.player.x;
-      this.lastEmittedY = this.player.y;
+      this.lastEmittedX  = this.player.x;
+      this.lastEmittedY  = this.player.y;
       this.lastDirection = direction;
     }
 

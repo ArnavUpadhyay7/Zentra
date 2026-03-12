@@ -11,11 +11,13 @@ export default function Game() {
   const username =
     state?.username || localStorage.getItem("vs_username") || "Player";
   const charIndex = state?.charIndex || 1;
+  const mapId = state?.mapId || "indoor";
 
   useEffect(() => {
     console.log("=== Game useEffect running ===");
     console.log("roomId:", roomId);
     console.log("username:", username);
+    console.log("mapId:", mapId);
     console.log("charIndex (from state):", state?.charIndex);
     console.log("socket.id:", socket.id);
     console.log("socket.connected:", socket.connected);
@@ -43,16 +45,15 @@ export default function Game() {
     game.registry.set("roomId",    roomId);
     game.registry.set("username",  username);
     game.registry.set("myId",      socket.id);
+    game.registry.set("mapId",     mapId);
 
-    console.log("Registry set. myId:", socket.id);
+    console.log("Registry set. myId:", socket.id, "mapId:", mapId);
 
-    // Listen for Phaser scene being ready
     game.events.once("ready", () => {
       console.log("=== Phaser ready event fired ===");
       console.log("socket.id at ready:", socket.id);
       console.log("Is creator (has state.charIndex)?", !!state?.charIndex);
 
-      // Update myId now that we're sure socket is connected
       game.registry.set("myId", socket.id);
 
       if (!state?.charIndex) {
@@ -63,7 +64,6 @@ export default function Game() {
       }
     });
 
-    // Debug: log ALL incoming socket events
     socket.onAny((event, ...args) => {
       console.log(`[SOCKET IN] ${event}`, args);
     });
