@@ -271,6 +271,8 @@ export default class World extends Phaser.Scene {
         flipX: this.player.flipX,
       });
 
+      socket.emit("check-proximity");
+
       this.lastEmittedX  = this.player.x;
       this.lastEmittedY  = this.player.y;
       this.lastDirection = direction;
