@@ -1,8 +1,8 @@
 const express = require("express");
-const http    = require("http");
+const http = require("http");
 const { Server } = require("socket.io");
 const { nanoid } = require("nanoid");
-const cors    = require("cors");
+const cors = require("cors");
 
 const app = express();
 app.use(cors());
@@ -24,7 +24,9 @@ io.on("connection", (socket) => {
     socket.join(roomId);
 
     rooms[roomId].players[socket.id] = {
-      username: data.username, x: 256, y: 160,
+      username: data.username,
+      x: 256,
+      y: 160,
       charIndex: rooms[roomId].nextCharacterIndex++,
     };
 
@@ -35,7 +37,8 @@ io.on("connection", (socket) => {
     });
 
     io.to(roomId).emit("player-joined", {
-      id: socket.id, username: data.username,
+      id: socket.id,
+      username: data.username,
       players: rooms[roomId].players,
     });
   });
@@ -53,13 +56,17 @@ io.on("connection", (socket) => {
 
     socket.join(roomId);
     rooms[roomId].players[socket.id] = {
-      username, x: 256, y: 160,
+      username,
+      x: 256,
+      y: 160,
       charIndex: rooms[roomId].nextCharacterIndex++,
     };
 
     console.log(`Player ${username} joined room ${roomId}`);
     io.to(roomId).emit("player-joined", {
-      id: socket.id, username, players: rooms[roomId].players,
+      id: socket.id,
+      username,
+      players: rooms[roomId].players,
     });
   });
 
@@ -68,7 +75,9 @@ io.on("connection", (socket) => {
       rooms[roomId].players[socket.id].x = x;
       rooms[roomId].players[socket.id].y = y;
     }
-    socket.to(roomId).emit("player-moved", { id: socket.id, x, y, direction, flipX });
+    socket
+      .to(roomId)
+      .emit("player-moved", { id: socket.id, x, y, direction, flipX });
   });
 
   socket.on("get-room-state", ({ roomId }) => {
@@ -78,13 +87,63 @@ io.on("connection", (socket) => {
 
   socket.on("chat-message", ({ roomId, username, text }) => {
     if (!rooms[roomId]) return;
-    if (!text?.trim())  return;
+    if (!text?.trim()) return;
 
     socket.to(roomId).emit("chat-message", {
       username,
       text: text.trim().slice(0, 300),
       ts: Date.now(),
     });
+  });
+
+  // proximity check
+  // if distance < proximity range -> emit "player-nearby"
+  // distance = Math.sqrt((x2 - x1)^2 + (y2 - y1)^2)
+
+  const proximityState = {};
+  // { socketId: Set(playerIdsNearby) }
+
+  socket.on("check-proximity", () => {
+    const roomId = Object.keys(rooms).find(
+      (id) => rooms[id].players[socket.id],
+    );
+    if (!roomId) return;
+
+    const player = rooms[roomId].players[socket.id];
+    const proximityRange = 100;
+
+    if (!proximityState[socket.id]) {
+      proximityState[socket.id] = new Set();
+    }
+
+    const currentNearby = new Set();
+
+    for (const [id, otherPlayer] of Object.entries(rooms[roomId].players)) {
+      if (id === socket.id) continue;
+
+      const dx = otherPlayer.x - player.x;
+      const dy = otherPlayer.y - player.y;
+
+      if (dx * dx + dy * dy < proximityRange * proximityRange) {
+        currentNearby.add(id);
+
+        // player ENTERED range
+        if (!proximityState[socket.id].has(id)) {
+          socket.emit("nearby-user", otherPlayer);
+          console.log(`Player entered proximity: ${otherPlayer.username}`);
+        }
+      }
+    }
+
+    // detect players who LEFT range
+    for (const id of proximityState[socket.id]) {
+      if (!currentNearby.has(id)) {
+        socket.emit("nearby-left", { id });
+        console.log(`Player left proximity`);
+      }
+    }
+
+    proximityState[socket.id] = currentNearby;
   });
 
   socket.on("disconnect", () => {
@@ -97,6 +156,8 @@ io.on("connection", (socket) => {
         io.to(roomId).emit("player-left", { id: socket.id, username });
         if (Object.keys(room.players).length === 0) {
           delete rooms[roomId];
+          // delete proximity state - change
+          delete proximityState[socket.id];
           console.log(`Room ${roomId} deleted — empty`);
         }
         break;
