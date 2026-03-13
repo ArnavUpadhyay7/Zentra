@@ -8,6 +8,7 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+      <Route path="/join/:roomId" element={<Landing />} />
       <Route path="/game/:roomId" element={<Game />} />
     </Routes>
   );
