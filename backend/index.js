@@ -20,7 +20,7 @@ io.on("connection", (socket) => {
 
   socket.on("create-room", (data) => {
     const roomId = nanoid(8);
-    rooms[roomId] = { players: {}, nextCharacterIndex: 1 };
+    rooms[roomId] = { players: {}, nextCharacterIndex: 1, mapId: data.mapId || "indoor" };
     socket.join(roomId);
 
     rooms[roomId].players[socket.id] = {
@@ -34,12 +34,14 @@ io.on("connection", (socket) => {
     socket.emit("room-created", {
       roomId,
       charIndex: rooms[roomId].players[socket.id].charIndex,
+      mapId: rooms[roomId].mapId,
     });
 
     io.to(roomId).emit("player-joined", {
       id: socket.id,
       username: data.username,
       players: rooms[roomId].players,
+      mapId: rooms[roomId].mapId,
     });
   });
 
@@ -67,6 +69,7 @@ io.on("connection", (socket) => {
       id: socket.id,
       username,
       players: rooms[roomId].players,
+      mapId: rooms[roomId].mapId,
     });
   });
 
@@ -110,7 +113,7 @@ io.on("connection", (socket) => {
     if (!roomId) return;
 
     const player = rooms[roomId].players[socket.id];
-    const proximityRange = 100;
+    const proximityRange = 50;
 
     if (!proximityState[socket.id]) {
       proximityState[socket.id] = new Set();
