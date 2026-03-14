@@ -1,5 +1,23 @@
 import { useState } from "react";
 
+const C = {
+  bg:       "#FAF7F2",
+  bgAlt:    "#F3EFE8",
+  ink:      "#1A1814",
+  inkMid:   "#6B6359",
+  inkLight: "#A89E94",
+  accent:   "#E8632A",
+  accentBg: "#FDF1EB",
+  border:   "#E8E2DA",
+  borderDark: "#D4C9B8",
+};
+
+const FONTS = {
+  display: "'Playfair Display', Georgia, serif",
+  body:    "'Plus Jakarta Sans', sans-serif",
+  mono:    "'DM Mono', monospace",
+};
+
 const MAPS = [
   {
     id: "indoor",
@@ -8,7 +26,6 @@ const MAPS = [
     image: "/assets/Sample2.png",
     players: "Up to 6",
     tag: "New",
-    tagColor: "rgba(99,102,241,0.85)",
     preview: { bg: "#c8915a" },
   },
   {
@@ -18,201 +35,276 @@ const MAPS = [
     image: "/assets/Sample.png",
     players: "Up to 6",
     tag: "Classic",
-    tagColor: "rgba(0,0,0,0.55)",
-    preview: { bg: "#1a1a2e" },
+    preview: { bg: "#2a1f14" },
   },
 ];
 
 const COMING_SOON = [
-  { name: "Neon City",      description: "Rain-slicked streets and rooftop gardens.", emoji: "🏙️" },
-  { name: "Forest Shrine",  description: "Ancient trees and quiet clearings.",         emoji: "🌲" },
-  { name: "Space Station",  description: "Zero-g corridors and observation decks.",    emoji: "🚀" },
+  { name: "Neon City",     description: "Rain-slicked streets and rooftop gardens.", emoji: "🏙️" },
+  { name: "Forest Shrine", description: "Ancient trees and quiet clearings.",         emoji: "🌲" },
+  { name: "Space Station", description: "Zero-g corridors and observation decks.",    emoji: "🚀" },
 ];
 
 export default function MapDrawer({ open, onSelect, onClose }) {
   const [selected, setSelected] = useState("indoor");
+  const [btnHover, setBtnHover] = useState(false);
+  const [closeHover, setCloseHover] = useState(false);
 
   if (!open) return null;
 
   return (
     <>
-      <div onClick={onClose} style={{
-        position: "fixed", inset: 0,
-        background: "rgba(0,0,0,0.25)", backdropFilter: "blur(2px)",
-        zIndex: 40, animation: "fadeIn 0.2s ease",
-      }} />
+      <style>{`
+        @keyframes drawerFadeIn  { from { opacity: 0 } to { opacity: 1 } }
+        @keyframes drawerSlideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }
+        .map-drawer-scroll::-webkit-scrollbar { width: 4px; }
+        .map-drawer-scroll::-webkit-scrollbar-track { background: transparent; }
+        .map-drawer-scroll::-webkit-scrollbar-thumb { background: ${C.borderDark}; border-radius: 4px; }
+      `}</style>
 
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{
+          position: "fixed", inset: 0, zIndex: 140,
+          background: "rgba(26,24,20,0.35)",
+          backdropFilter: "blur(4px)",
+          animation: "drawerFadeIn 0.25s ease",
+        }}
+      />
+
+      {/* Panel */}
       <div style={{
-        position: "fixed", top: 0, right: 0, bottom: 0, width: "460px",
-        background: "#ffffff", borderLeft: "1px solid rgba(0,0,0,0.07)",
-        boxShadow: "-8px 0 40px rgba(0,0,0,0.10)", zIndex: 50,
+        position: "fixed", top: 0, right: 0, bottom: 0, width: 480,
+        background: C.bg,
+        borderLeft: `1.5px solid ${C.border}`,
+        boxShadow: "-12px 0 60px rgba(26,24,20,0.12)",
+        zIndex: 150,
         display: "flex", flexDirection: "column",
-        animation: "slideIn 0.3s cubic-bezier(0.16,1,0.3,1)",
-        fontFamily: "'DM Sans', sans-serif",
+        animation: "drawerSlideIn 0.38s cubic-bezier(0.16,1,0.3,1)",
+        fontFamily: FONTS.body,
       }}>
 
         {/* Header */}
         <div style={{
-          padding: "28px 28px 22px",
-          borderBottom: "1px solid rgba(0,0,0,0.06)",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "28px 32px 24px",
+          borderBottom: `1.5px solid ${C.border}`,
+          display: "flex", alignItems: "flex-start", justifyContent: "space-between",
         }}>
           <div>
             <div style={{
-              fontSize: "11px", fontWeight: 600, letterSpacing: "0.12em",
-              color: "#6366f1", textTransform: "uppercase", marginBottom: "5px",
-            }}>Choose a Map</div>
+              fontFamily: FONTS.mono, fontSize: 10, fontWeight: 500,
+              letterSpacing: "0.16em", textTransform: "uppercase",
+              color: C.accent, marginBottom: 6,
+            }}>
+              Choose a Map
+            </div>
             <div style={{
-              fontSize: "22px", fontWeight: 800, color: "#030712",
-              fontFamily: "'Bricolage Grotesque', sans-serif", letterSpacing: "-0.03em",
-            }}>Pick your space</div>
+              fontFamily: FONTS.display, fontWeight: 700, fontSize: 26,
+              color: C.ink, letterSpacing: "-0.025em", lineHeight: 1.1,
+            }}>
+              Pick your space
+            </div>
           </div>
-          <button onClick={onClose} style={{
-            background: "#f9fafb", border: "1px solid rgba(0,0,0,0.08)",
-            color: "#9ca3af", width: "34px", height: "34px", borderRadius: "8px",
-            cursor: "pointer", fontSize: "14px", display: "flex",
-            alignItems: "center", justifyContent: "center", transition: "all 0.15s",
-          }}
-            onMouseEnter={e => { e.currentTarget.style.background = "#f3f4f6"; e.currentTarget.style.color = "#374151"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = "#f9fafb"; e.currentTarget.style.color = "#9ca3af"; }}
-          >✕</button>
+          <button
+            onClick={onClose}
+            onMouseEnter={() => setCloseHover(true)}
+            onMouseLeave={() => setCloseHover(false)}
+            style={{
+              width: 34, height: 34, borderRadius: 8, border: `1.5px solid ${C.border}`,
+              background: closeHover ? C.bgAlt : C.bg,
+              color: closeHover ? C.ink : C.inkLight,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer", fontSize: 14, transition: "all 0.18s ease",
+              marginTop: 4,
+            }}
+          >
+            ✕
+          </button>
         </div>
 
-        {/* Map list */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "24px 24px 0" }}>
-          <div style={{
-            fontSize: "11px", fontWeight: 600, letterSpacing: "0.1em",
-            color: "#9ca3af", textTransform: "uppercase", marginBottom: "12px",
-          }}>Available</div>
+        {/* Scrollable content */}
+        <div className="map-drawer-scroll" style={{ flex: 1, overflowY: "auto", padding: "28px 32px 0" }}>
 
-          {MAPS.map(map => {
-            const isSelected = selected === map.id;
-            return (
-              <div key={map.id} onClick={() => setSelected(map.id)} style={{
-                borderRadius: "16px",
-                border: isSelected ? "2px solid #6366f1" : "2px solid rgba(0,0,0,0.07)",
-                background: isSelected ? "rgba(99,102,241,0.04)" : "#fafafa",
-                marginBottom: "12px", cursor: "pointer",
-                transition: "all 0.18s ease", overflow: "hidden",
-                boxShadow: isSelected ? "0 0 0 4px rgba(99,102,241,0.08)" : "none",
-              }}
-                onMouseEnter={e => { if (!isSelected) { e.currentTarget.style.border = "2px solid rgba(0,0,0,0.14)"; e.currentTarget.style.background = "#f3f4f6"; } }}
-                onMouseLeave={e => { if (!isSelected) { e.currentTarget.style.border = "2px solid rgba(0,0,0,0.07)"; e.currentTarget.style.background = "#fafafa"; } }}
-              >
-                {/* Preview image */}
-                <div style={{
-                  height: "160px", background: map.preview.bg,
-                  overflow: "hidden", position: "relative",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  <img src={map.image} alt={map.name} style={{
-                    width: "100%", height: "100%", objectFit: "cover",
-                    imageRendering: "pixelated", opacity: 0.9, transform: "scale(1.05)",
-                  }} />
-                  <div style={{
-                    position: "absolute", top: "12px", left: "12px",
-                    background: isSelected ? "#6366f1" : map.tagColor,
-                    color: "#fff", fontSize: "10px", fontWeight: 700,
-                    letterSpacing: "0.08em", textTransform: "uppercase",
-                    padding: "4px 10px", borderRadius: "6px",
-                    backdropFilter: "blur(4px)", transition: "all 0.18s",
-                  }}>{map.tag}</div>
-                  {isSelected && (
-                    <div style={{
-                      position: "absolute", top: "12px", right: "12px",
-                      background: "#6366f1", borderRadius: "50%",
-                      width: "24px", height: "24px",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: "13px", color: "#fff",
-                      boxShadow: "0 2px 8px rgba(99,102,241,0.5)",
-                    }}>✓</div>
-                  )}
-                </div>
+          {/* Section label */}
+          <SectionLabel>Available</SectionLabel>
 
-                {/* Info */}
-                <div style={{ padding: "16px 18px" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
-                    <div style={{
-                      fontSize: "16px", fontWeight: 800, color: "#030712",
-                      fontFamily: "'Bricolage Grotesque', sans-serif", letterSpacing: "-0.02em",
-                    }}>{map.name}</div>
-                    <div style={{ fontSize: "11px", color: "#9ca3af", display: "flex", alignItems: "center", gap: "4px" }}>
-                      <span style={{ color: "#22c55e", fontSize: "8px" }}>●</span> {map.players}
-                    </div>
-                  </div>
-                  <div style={{ fontSize: "13px", color: "#6b7280", lineHeight: 1.6 }}>
-                    {map.description}
-                  </div>
-                </div>
-              </div>
-            );
+          {MAPS.map((map) => {
+            const isSel = selected === map.id;
+            return <MapCard key={map.id} map={map} selected={isSel} onClick={() => setSelected(map.id)} />;
           })}
 
           {/* Coming soon */}
-          <div style={{
-            fontSize: "11px", fontWeight: 600, letterSpacing: "0.1em",
-            color: "#9ca3af", textTransform: "uppercase", margin: "24px 0 12px",
-          }}>Coming Soon</div>
-
-          {COMING_SOON.map((map, i) => (
-            <div key={i} style={{
-              borderRadius: "12px", border: "1.5px solid rgba(0,0,0,0.06)",
-              background: "#fafafa", marginBottom: "10px", padding: "14px 16px",
-              display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px",
-            }}>
-              <div style={{
-                width: "44px", height: "44px", borderRadius: "10px",
-                background: "#f3f4f6", flexShrink: 0, fontSize: "20px",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                border: "1px solid rgba(0,0,0,0.06)",
-              }}>{map.emoji}</div>
-              <div style={{ flex: 1 }}>
+          <div style={{ marginTop: 32 }}>
+            <SectionLabel>Coming Soon</SectionLabel>
+            {COMING_SOON.map((map, i) => (
+              <div key={i} style={{
+                display: "flex", alignItems: "center", gap: 16,
+                padding: "14px 18px", borderRadius: 12,
+                border: `1.5px solid ${C.border}`,
+                background: C.bgAlt,
+                marginBottom: 10,
+              }}>
                 <div style={{
-                  fontSize: "14px", fontWeight: 600, color: "#9ca3af",
-                  marginBottom: "3px", fontFamily: "'Bricolage Grotesque', sans-serif",
-                }}>{map.name}</div>
-                <div style={{ fontSize: "12px", color: "#d1d5db", lineHeight: 1.4 }}>
-                  {map.description}
+                  width: 46, height: 46, borderRadius: 10, flexShrink: 0,
+                  background: C.bg, border: `1.5px solid ${C.border}`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 22,
+                }}>
+                  {map.emoji}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: FONTS.display, fontWeight: 700, fontSize: 15, color: C.inkLight, marginBottom: 3, letterSpacing: "-0.01em" }}>
+                    {map.name}
+                  </div>
+                  <div style={{ fontFamily: FONTS.body, fontSize: 13, color: C.borderDark, lineHeight: 1.5 }}>
+                    {map.description}
+                  </div>
+                </div>
+                <div style={{
+                  fontFamily: FONTS.mono, fontSize: 9, fontWeight: 500,
+                  letterSpacing: "0.14em", textTransform: "uppercase",
+                  color: C.inkLight, background: C.bg,
+                  border: `1px solid ${C.border}`,
+                  padding: "4px 10px", borderRadius: 6, flexShrink: 0,
+                }}>
+                  Soon
                 </div>
               </div>
-              <div style={{
-                fontSize: "10px", fontWeight: 700, letterSpacing: "0.08em",
-                textTransform: "uppercase", color: "#d1d5db",
-                background: "#f3f4f6", border: "1px solid rgba(0,0,0,0.06)",
-                padding: "4px 10px", borderRadius: "6px", flexShrink: 0,
-              }}>Soon</div>
-            </div>
-          ))}
+            ))}
+          </div>
 
-          <div style={{ height: "100px" }} />
+          <div style={{ height: 120 }} />
         </div>
 
-        {/* CTA */}
-        <div style={{ padding: "18px 24px", borderTop: "1px solid rgba(0,0,0,0.06)", background: "#ffffff" }}>
-          <button onClick={() => onSelect(selected)} style={{
-            width: "100%", padding: "15px",
-            background: "linear-gradient(135deg, #4f46e5, #6366f1)",
-            border: "none", borderRadius: "12px", color: "#fff",
-            fontSize: "15px", fontWeight: 700, cursor: "pointer",
-            fontFamily: "'Bricolage Grotesque', sans-serif", letterSpacing: "-0.01em",
-            transition: "opacity 0.15s, transform 0.15s",
-            boxShadow: "0 2px 0 #4338ca, 0 4px 20px rgba(99,102,241,0.35)",
-          }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = "0.92"; e.currentTarget.style.transform = "translateY(-1px)"; }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "translateY(0)"; }}
+        {/* CTA footer */}
+        <div style={{
+          padding: "20px 32px",
+          borderTop: `1.5px solid ${C.border}`,
+          background: C.bg,
+        }}>
+          <button
+            onClick={() => onSelect(selected)}
+            onMouseEnter={() => setBtnHover(true)}
+            onMouseLeave={() => setBtnHover(false)}
+            style={{
+              width: "100%", padding: "15px 0",
+              background: btnHover ? "#D4571F" : C.accent,
+              border: "none", borderRadius: 12, color: C.bg,
+              fontFamily: FONTS.body, fontWeight: 700, fontSize: 15,
+              cursor: "pointer", letterSpacing: "-0.01em",
+              boxShadow: `0 4px 20px ${C.accent}44`,
+              transform: btnHover ? "translateY(-2px)" : "translateY(0)",
+              transition: "all 0.2s ease",
+            }}
           >
             Enter Space →
           </button>
-          <div style={{ textAlign: "center", fontSize: "12px", color: "#d1d5db", marginTop: "10px" }}>
+          <p style={{
+            textAlign: "center", fontFamily: FONTS.mono, fontSize: 10,
+            color: C.inkLight, marginTop: 10, letterSpacing: "0.06em",
+          }}>
             Select a map to create your room
-          </div>
+          </p>
         </div>
       </div>
-
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
-        @keyframes slideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }
-      `}</style>
     </>
+  );
+}
+
+function SectionLabel({ children }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+      <div style={{ width: 20, height: 1.5, background: C.accent }} />
+      <span style={{
+        fontFamily: FONTS.mono, fontSize: 9, fontWeight: 500,
+        letterSpacing: "0.18em", textTransform: "uppercase", color: C.accent,
+      }}>
+        {children}
+      </span>
+    </div>
+  );
+}
+
+function MapCard({ map, selected, onClick }) {
+  const [h, setH] = useState(false);
+  const active = selected || h;
+
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setH(true)}
+      onMouseLeave={() => setH(false)}
+      style={{
+        borderRadius: 16, overflow: "hidden", marginBottom: 14, cursor: "pointer",
+        border: `1.5px solid ${selected ? C.accent : h ? C.borderDark : C.border}`,
+        background: selected ? C.accentBg : h ? C.bgAlt : C.bg,
+        boxShadow: selected
+          ? `0 0 0 3px ${C.accent}22, 0 4px 20px rgba(26,24,20,0.08)`
+          : h ? "0 4px 16px rgba(26,24,20,0.06)" : "none",
+        transition: "all 0.22s ease",
+      }}
+    >
+      {/* Preview image */}
+      <div style={{ height: 168, background: map.preview.bg, position: "relative", overflow: "hidden" }}>
+        <img
+          src={map.image} alt={map.name}
+          style={{
+            width: "100%", height: "100%", objectFit: "cover",
+            imageRendering: "pixelated",
+            transform: h ? "scale(1.06)" : "scale(1.02)",
+            transition: "transform 0.5s ease",
+            opacity: 0.9,
+          }}
+        />
+
+        {/* Tag badge */}
+        <div style={{
+          position: "absolute", top: 12, left: 12,
+          fontFamily: FONTS.mono, fontSize: 9, fontWeight: 500,
+          letterSpacing: "0.14em", textTransform: "uppercase",
+          color: selected ? C.bg : C.ink,
+          background: selected ? C.accent : "rgba(250,247,242,0.88)",
+          border: `1px solid ${selected ? "transparent" : C.border}`,
+          backdropFilter: "blur(6px)",
+          padding: "4px 10px", borderRadius: 6,
+          transition: "all 0.2s ease",
+        }}>
+          {map.tag}
+        </div>
+
+        {/* Checkmark when selected */}
+        {selected && (
+          <div style={{
+            position: "absolute", top: 12, right: 12,
+            width: 26, height: 26, borderRadius: "50%",
+            background: C.accent,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: C.bg, fontSize: 13,
+            boxShadow: `0 2px 10px ${C.accent}66`,
+          }}>
+            ✓
+          </div>
+        )}
+      </div>
+
+      {/* Info */}
+      <div style={{ padding: "18px 20px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <span style={{
+            fontFamily: FONTS.display, fontWeight: 700, fontSize: 17,
+            color: C.ink, letterSpacing: "-0.02em",
+          }}>
+            {map.name}
+          </span>
+          <span style={{ fontFamily: FONTS.mono, fontSize: 10, color: C.inkLight, display: "flex", alignItems: "center", gap: 5, letterSpacing: "0.04em" }}>
+            <span style={{ color: "#4ade80", fontSize: 8 }}>●</span> {map.players}
+          </span>
+        </div>
+        <p style={{ fontFamily: FONTS.body, fontSize: 13, color: C.inkMid, lineHeight: 1.65 }}>
+          {map.description}
+        </p>
+      </div>
+    </div>
   );
 }
