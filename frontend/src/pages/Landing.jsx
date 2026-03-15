@@ -4,7 +4,7 @@ import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import MapDrawer from "../components/MapDrawer";
 import {
-  NameModal, Hero, HowItWorks, Features, Callout, FAQ, CTABanner,
+  NameModal, Hero, HowItWorks, Features, Callout, FAQ, CTABanner, MobileToast,
 } from "./LandingHelper";
 
 // ── Cursor trail dot ──────────────────────────────────────────────────────────
@@ -15,6 +15,9 @@ function CursorTrail() {
   const containerRef = useRef(null);
 
   useEffect(() => {
+    // Skip on touch-only devices
+    if (window.matchMedia("(pointer: coarse)").matches) return;
+
     const N = 10;
     const trail = [];
 
@@ -76,6 +79,7 @@ function FloatingDock({ onCTA }) {
   const [visible, setVisible] = useState(false);
   const [hCreate, setHCreate] = useState(false);
   const [hJoin,   setHJoin]   = useState(false);
+  const [toast,   setToast]   = useState(false);
 
   useEffect(() => {
     const onScroll = () => setVisible(window.scrollY > 280);
@@ -83,63 +87,73 @@ function FloatingDock({ onCTA }) {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  const handleCTA = (intent) => {
+    if (window.innerWidth < 768) { setToast(true); return; }
+    onCTA(intent);
+  };
+
   return (
-    <div style={{
-      position: "fixed", bottom: 32, left: "50%",
-      transform: `translateX(-50%) translateY(${visible ? 0 : 20}px)`,
-      opacity: visible ? 1 : 0,
-      transition: "opacity 0.4s cubic-bezier(0.16,1,0.3,1), transform 0.4s cubic-bezier(0.16,1,0.3,1)",
-      zIndex: 80,
-      display: "flex", alignItems: "center", gap: 8,
-      background: "#1A1814",
-      border: "1px solid rgba(232,226,218,0.15)",
-      borderRadius: 100,
-      padding: "8px 10px 8px 16px",
-      boxShadow: "0 8px 40px rgba(26,24,20,0.35), 0 2px 8px rgba(26,24,20,0.2)",
-    }}>
-      {/* Live pulse */}
-      <span style={{ position: "relative", display: "inline-flex", width: 7, height: 7, marginRight: 4 }}>
-        <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#E8632A", animation: "dock-ping 2s ease-in-out infinite", opacity: 0.6 }} />
-        <span style={{ position: "relative", width: 7, height: 7, borderRadius: "50%", background: "#E8632A", display: "block" }} />
-      </span>
-      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "rgba(245,240,232,0.55)", letterSpacing: "0.06em", marginRight: 8, whiteSpace: "nowrap" }}>
-        Jump in now
-      </span>
+    <>
+      <div className="zh-floating-dock" style={{
+        position: "fixed", bottom: 32, left: "50%",
+        transform: `translateX(-50%) translateY(${visible ? 0 : 20}px)`,
+        opacity: visible ? 1 : 0,
+        transition: "opacity 0.4s cubic-bezier(0.16,1,0.3,1), transform 0.4s cubic-bezier(0.16,1,0.3,1)",
+        zIndex: 80,
+        display: "flex", alignItems: "center", gap: 8,
+        background: "#1A1814",
+        border: "1px solid rgba(232,226,218,0.15)",
+        borderRadius: 100,
+        padding: "8px 10px 8px 16px",
+        boxShadow: "0 8px 40px rgba(26,24,20,0.35), 0 2px 8px rgba(26,24,20,0.2)",
+      }}>
+        {/* Live pulse */}
+        <span style={{ position: "relative", display: "inline-flex", width: 7, height: 7, marginRight: 4 }}>
+          <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#E8632A", animation: "dock-ping 2s ease-in-out infinite", opacity: 0.6 }} />
+          <span style={{ position: "relative", width: 7, height: 7, borderRadius: "50%", background: "#E8632A", display: "block" }} />
+        </span>
+        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "rgba(245,240,232,0.55)", letterSpacing: "0.06em", marginRight: 8, whiteSpace: "nowrap" }}>
+          Jump in now
+        </span>
 
-      <button
-        onClick={() => onCTA("create")}
-        onMouseEnter={() => setHCreate(true)}
-        onMouseLeave={() => setHCreate(false)}
-        style={{
-          fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 13,
-          color: "#16120E",
-          background: hCreate ? "#D4571F" : "#E8632A",
-          border: "none", borderRadius: 100,
-          padding: "9px 18px", cursor: "pointer",
-          transition: "all 0.18s ease",
-          transform: hCreate ? "scale(1.03)" : "scale(1)",
-        }}
-      >
-        + Create
-      </button>
+        <button
+          onClick={() => handleCTA("create")}
+          onMouseEnter={() => setHCreate(true)}
+          onMouseLeave={() => setHCreate(false)}
+          style={{
+            fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 13,
+            color: "#16120E",
+            background: hCreate ? "#D4571F" : "#E8632A",
+            border: "none", borderRadius: 100,
+            padding: "9px 18px", cursor: "pointer",
+            transition: "all 0.18s ease",
+            transform: hCreate ? "scale(1.03)" : "scale(1)",
+          }}
+        >
+          + Create
+        </button>
 
-      <button
-        onClick={() => onCTA("join")}
-        onMouseEnter={() => setHJoin(true)}
-        onMouseLeave={() => setHJoin(false)}
-        style={{
-          fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 13,
-          color: hJoin ? "#F5F0E8" : "rgba(245,240,232,0.6)",
-          background: hJoin ? "rgba(245,240,232,0.1)" : "transparent",
-          border: "1px solid rgba(232,226,218,0.15)",
-          borderRadius: 100,
-          padding: "9px 18px", cursor: "pointer",
-          transition: "all 0.18s ease",
-        }}
-      >
-        ↗ Join
-      </button>
-    </div>
+        <button
+          onClick={() => handleCTA("join")}
+          onMouseEnter={() => setHJoin(true)}
+          onMouseLeave={() => setHJoin(false)}
+          style={{
+            fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 13,
+            color: hJoin ? "#F5F0E8" : "rgba(245,240,232,0.6)",
+            background: hJoin ? "rgba(245,240,232,0.1)" : "transparent",
+            border: "1px solid rgba(232,226,218,0.15)",
+            borderRadius: 100,
+            padding: "9px 18px", cursor: "pointer",
+            transition: "all 0.18s ease",
+          }}
+        >
+          ↗ Join
+        </button>
+      </div>
+
+      {/* Mobile toast — shown instead of modal on narrow screens */}
+      <MobileToast visible={toast} onHide={() => setToast(false)} />
+    </>
   );
 }
 
@@ -155,7 +169,6 @@ export default function Landing() {
 
   // ── Lenis smooth scroll ────────────────────────────────────────────────────
   useEffect(() => {
-    // Dynamically import Lenis so it's a soft dep
     import("lenis").then(({ default: Lenis }) => {
       const lenis = new Lenis({
         duration: 1.4,
@@ -165,11 +178,9 @@ export default function Landing() {
       });
       lenisRef.current = lenis;
 
-      // Sync with RAF
       function raf(time) { lenis.raf(time); requestAnimationFrame(raf); }
       requestAnimationFrame(raf);
 
-      // Anchor links
       document.querySelectorAll('a[href^="#"]').forEach(a => {
         a.addEventListener("click", (e) => {
           e.preventDefault();
@@ -177,9 +188,7 @@ export default function Landing() {
           if (target) lenis.scrollTo(target, { offset: -80 });
         });
       });
-    }).catch(() => {
-      // Lenis not installed — graceful fallback, page works fine
-    });
+    }).catch(() => {});
 
     return () => { lenisRef.current?.destroy(); };
   }, []);
@@ -205,9 +214,6 @@ export default function Landing() {
     });
   };
 
-  // ── Join flow ─────────────────────────────────────────────────────────────
-  // Uses join-success (not player-joined) so we receive charIndex from the
-  // server — each player gets a unique character (1-6) and spawn position.
   const handleJoinSuccess = ({ username, roomId }) => {
     setModal(null);
     import("../socket/socket").then(({ default: socket }) => {
@@ -223,7 +229,6 @@ export default function Landing() {
         setModal({ intent: "join", prefillRoomId: roomId, error: message });
       });
 
-      // Wait for connection before emitting — socket.connect() is async
       const emitJoin = () => socket.emit("join-room", { roomId, username });
       if (socket.connected) {
         emitJoin();

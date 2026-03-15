@@ -76,11 +76,11 @@ export const FAQS = [
   },
   {
     q: "How many people can be in one space?",
-    a: "Comfortably up to 20 in a single room. The spatial model helps — conversations splinter naturally so it never feels like everyone is shouting at once.",
+    a: "Comfortably up to 6 in a single room. The spatial model helps — conversations splinter naturally so it never feels like everyone is shouting at once.",
   },
   {
-    q: "Can I use a custom map?",
-    a: "Yes. We support Tiled map editor exports. Design your layout, export as JSON, and upload it when creating your space.",
+    q: "Why did my ex leave me? 💔",
+    a: "Probably a mismatch in compatibility settings. Try upgrading communication, reducing bugs in behavior, and remember—some connections just timeout.",
   },
   {
     q: "Is the voice truly private?",

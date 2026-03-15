@@ -20,6 +20,70 @@ const F = {
   mono:    "'DM Mono', monospace",
 };
 
+// ─── useIsMobile ──────────────────────────────────────────────────────────────
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < 768 : false
+  );
+  useEffect(() => {
+    const fn = () => setMobile(window.innerWidth < 768);
+    window.addEventListener("resize", fn, { passive: true });
+    return () => window.removeEventListener("resize", fn);
+  }, []);
+  return mobile;
+}
+
+// ─── MobileToast ─────────────────────────────────────────────────────────────
+// Exported so Landing.jsx FloatingDock can reuse it.
+export function MobileToast({ visible, onHide }) {
+  useEffect(() => {
+    if (!visible) return;
+    const t = setTimeout(onHide, 3800);
+    return () => clearTimeout(t);
+  }, [visible, onHide]);
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        bottom: 24,
+        left: "50%",
+        zIndex: 300,
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 12,
+        borderRadius: 16,
+        padding: "14px 18px",
+        background: C.ink,
+        border: "1px solid rgba(232,226,218,0.12)",
+        boxShadow: "0 8px 40px rgba(26,24,20,0.35)",
+        maxWidth: "calc(100vw - 32px)",
+        width: 340,
+        transform: `translateX(-50%) translateY(${visible ? 0 : 20}px)`,
+        opacity: visible ? 1 : 0,
+        transition: "opacity 0.35s ease, transform 0.4s cubic-bezier(0.16,1,0.3,1)",
+        pointerEvents: visible ? "auto" : "none",
+      }}
+    >
+      <div style={{ fontSize: 18, marginTop: 1, flexShrink: 0 }}>🖥️</div>
+      <div>
+        <p style={{ fontFamily: F.body, fontWeight: 600, fontSize: 13, color: "#FAF7F2", marginBottom: 3 }}>
+          Desktop only
+        </p>
+        <p style={{ fontFamily: F.body, fontSize: 12, color: "rgba(250,247,242,0.55)", lineHeight: 1.55 }}>
+          Zentra needs keyboard controls &amp; WebRTC — open on a desktop browser for the full experience.
+        </p>
+      </div>
+      <button
+        onClick={onHide}
+        style={{ background: "none", border: "none", color: "rgba(250,247,242,0.35)", fontSize: 16, cursor: "pointer", flexShrink: 0, marginLeft: "auto", lineHeight: 1 }}
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 // ─── useInView ────────────────────────────────────────────────────────────────
 function useInView(opts = {}) {
   const ref = useRef(null);
@@ -270,40 +334,29 @@ export function Label({ children, light = false }) {
 }
 
 // ─── HERO PLAYGROUND — Voice Radius Visualization (back-face canvas) ─────────
-//
-// System-view of Zentra's proximity voice mechanic.
-// Each avatar wears a visible circular voice radius.
-// When two radii overlap → glow intensifies + chat bubble fires.
-// Player is WASD / arrow-key controllable.
-// Soft scene-entry fade-in on first activation.
-//
 function HeroPlayground({ active }) {
   const canvasRef    = useRef(null);
   const rafRef       = useRef(null);
   const stateRef     = useRef(null);
   const keysRef      = useRef({});
-  const activeRef    = useRef(active);       // readable inside RAF closure
+  const activeRef    = useRef(active);
   const [showHint,   setShowHint]   = useState(false);
-  const [sceneAlpha, setSceneAlpha] = useState(0); // 0→1 fade-in on flip
+  const [sceneAlpha, setSceneAlpha] = useState(0);
   const hintShownRef = useRef(false);
   const sceneAlphaRef = useRef(0);
 
-  // Keep activeRef in sync
   useEffect(() => { activeRef.current = active; }, [active]);
 
-  // Fade-in + WASD hint on first activation
   useEffect(() => {
     if (!active) return;
-    // Animate scene alpha 0 → 1 over ~600ms
     const t0 = performance.now();
     const fadeIn = (now) => {
       const p = Math.min((now - t0) / 600, 1);
       sceneAlphaRef.current = p;
-      setSceneAlpha(p);            // triggers hint visibility
+      setSceneAlpha(p);
       if (p < 1) requestAnimationFrame(fadeIn);
     };
     requestAnimationFrame(fadeIn);
-
     if (!hintShownRef.current) {
       hintShownRef.current = true;
       setShowHint(true);
@@ -316,7 +369,6 @@ function HeroPlayground({ active }) {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
 
-    // ── Resize ────────────────────────────────────────────────────────────────
     const resize = () => {
       const p = canvas.parentElement.getBoundingClientRect();
       if (!p.width || !p.height) return;
@@ -329,23 +381,18 @@ function HeroPlayground({ active }) {
       build(p.width, p.height);
     };
 
-    // ── Constants ─────────────────────────────────────────────────────────────
-    // VOICE_R  — the visible radius circle each avatar displays
-    // TALK_R   — the actual overlap threshold (= VOICE_R, so circles touching = hearing)
     const VOICE_R    = 72;
     const TALK_R     = VOICE_R;
     const PLAYER_SPD = 2.4;
     const NPC_COLORS = ["#818CF8", "#4ADE80", "#F0ABFC", "#60A5FA", "#F59E0B"];
     const MSGS       = ["hey 👋", "yo!", "nice", "❤️", "👋", "same"];
 
-    // ── Build ─────────────────────────────────────────────────────────────────
     const build = (W, H) => {
-      const pad = VOICE_R + 8; // keep radii from touching the wall on spawn
+      const pad = VOICE_R + 8;
       const player = {
         id: "player", x: W / 2, y: H * 0.55,
         vx: 0, vy: 0, radius: 8,
         color: C.accent, facing: 0,
-        // per-avatar smoothed glow intensity (0–1)
         glowT: 0,
       };
       const npcs = NPC_COLORS.map((color, i) => ({
@@ -356,7 +403,7 @@ function HeroPlayground({ active }) {
         wanderTimer: 60 + Math.random() * 180, facing: 0,
         talking: false, showType: false, msg: "",
         typeTimer: 0, msgTimer: 0,
-        glowT: 0,   // smoothed glow intensity 0–1
+        glowT: 0,
       }));
       npcs.forEach(n => { n.tx = n.x; n.ty = n.y; });
       stateRef.current = { W, H, pad, player, npcs, tick: 0 };
@@ -366,7 +413,6 @@ function HeroPlayground({ active }) {
     const ro = new ResizeObserver(resize);
     ro.observe(canvas.parentElement);
 
-    // ── Key handling ──────────────────────────────────────────────────────────
     const onKeyDown = (e) => {
       keysRef.current[e.key] = true;
       if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key))
@@ -376,7 +422,6 @@ function HeroPlayground({ active }) {
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup",   onKeyUp);
 
-    // ── Draw helpers ──────────────────────────────────────────────────────────
     const hex2rgba = (hex, a) => {
       const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
       return `rgba(${r},${g},${b},${a})`;
@@ -391,22 +436,16 @@ function HeroPlayground({ active }) {
       ctx.closePath();
     };
 
-    // Draws the voice radius circle for one avatar.
-    // glowT (0–1) controls fill + ring intensity — lerped each frame.
     const drawRadius = (a) => {
       const col = a.color;
-      const t   = a.glowT;    // 0 = idle, 1 = fully overlapping
-
-      // Filled glow — inner soft fill, more opaque when overlapping
+      const t   = a.glowT;
       const fillOp = 0.055 + t * 0.085;
       const gFill  = ctx.createRadialGradient(a.x, a.y, 0, a.x, a.y, VOICE_R);
-      gFill.addColorStop(0,   hex2rgba(col, fillOp * 2.0));
+      gFill.addColorStop(0,    hex2rgba(col, fillOp * 2.0));
       gFill.addColorStop(0.55, hex2rgba(col, fillOp));
-      gFill.addColorStop(1,   hex2rgba(col, 0));
+      gFill.addColorStop(1,    hex2rgba(col, 0));
       ctx.fillStyle = gFill;
       ctx.beginPath(); ctx.arc(a.x, a.y, VOICE_R, 0, Math.PI*2); ctx.fill();
-
-      // Crisp dashed boundary ring — shows the exact edge of the radius
       const ringOp = 0.18 + t * 0.28;
       ctx.globalAlpha = ringOp;
       ctx.strokeStyle = col;
@@ -417,30 +456,21 @@ function HeroPlayground({ active }) {
       ctx.globalAlpha = 1;
     };
 
-    // Draws the avatar dot on top of its radius.
     const drawAvatar = (a, isPlayer) => {
       ctx.shadowColor = a.color + "66"; ctx.shadowBlur = isPlayer ? 14 : 9;
       ctx.fillStyle   = a.color;
       ctx.beginPath(); ctx.arc(a.x, a.y, a.radius, 0, Math.PI*2); ctx.fill();
       ctx.shadowBlur  = 0;
-
-      // Highlight gloss
       const hg = ctx.createRadialGradient(a.x-a.radius*.3, a.y-a.radius*.3, 0, a.x, a.y, a.radius);
       hg.addColorStop(0,"rgba(255,255,255,0.42)"); hg.addColorStop(1,"rgba(255,255,255,0)");
       ctx.fillStyle = hg;
       ctx.beginPath(); ctx.arc(a.x, a.y, a.radius, 0, Math.PI*2); ctx.fill();
-
-      // Border ring
       ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.arc(a.x, a.y, a.radius, 0, Math.PI*2); ctx.stroke();
-
-      // Facing dot
       const fx = a.x + Math.cos(a.facing)*a.radius*.55;
       const fy = a.y + Math.sin(a.facing)*a.radius*.55;
       ctx.fillStyle = "rgba(255,255,255,0.88)";
       ctx.beginPath(); ctx.arc(fx, fy, 1.5, 0, Math.PI*2); ctx.fill();
-
-      // "YOU" label for player
       if (isPlayer) {
         ctx.globalAlpha = 0.72;
         ctx.font = "600 8px 'DM Mono',monospace";
@@ -450,7 +480,6 @@ function HeroPlayground({ active }) {
       }
     };
 
-    // Small speech bubble above avatar
     const drawBubble = (a) => {
       const text = a.showType ? "···" : a.msg;
       if (!text) return;
@@ -468,13 +497,11 @@ function HeroPlayground({ active }) {
       ctx.globalAlpha = 1;
     };
 
-    // ── Simulation step ───────────────────────────────────────────────────────
     const step = () => {
       const s = stateRef.current; if (!s) return;
       const { W, H, pad, player, npcs } = s; s.tick++;
       const k = keysRef.current;
 
-      // ── Player movement (smooth acceleration + damping) ────────────────────
       let dx=0, dy=0;
       if (k["ArrowLeft"]  || k["a"] || k["A"]) dx -= 1;
       if (k["ArrowRight"] || k["d"] || k["D"]) dx += 1;
@@ -493,10 +520,8 @@ function HeroPlayground({ active }) {
       player.y = Math.max(pad, Math.min(H-pad, player.y+player.vy));
       if (pspd>0.1) player.facing = Math.atan2(player.vy, player.vx);
 
-      // ── NPC wander + separation + facing ──────────────────────────────────
       const all = [player, ...npcs];
       for (const n of npcs) {
-        // Wander
         n.wanderTimer--;
         if (n.wanderTimer<=0) {
           n.tx = pad + Math.random()*(W-pad*2);
@@ -505,8 +530,6 @@ function HeroPlayground({ active }) {
         }
         const wx=n.tx-n.x, wy=n.ty-n.y, wd=Math.hypot(wx,wy);
         if (wd>4) { n.vx+=(wx/wd)*0.18; n.vy+=(wy/wd)*0.18; }
-
-        // Soft avatar-to-avatar separation (avoid visual clutter)
         for (const b of all) {
           if (b.id===n.id) continue;
           const ex=n.x-b.x, ey=n.y-b.y, ed=Math.hypot(ex,ey);
@@ -518,12 +541,9 @@ function HeroPlayground({ active }) {
         n.x=Math.max(pad,Math.min(W-pad,n.x+n.vx));
         n.y=Math.max(pad,Math.min(H-pad,n.y+n.vy));
         if (spd>0.08) n.facing=Math.atan2(n.vy,n.vx);
-
-        // Orient slightly toward player when in range
         const distP=Math.hypot(n.x-player.x,n.y-player.y);
         if (distP<TALK_R && distP>0.1) {
           const targetFacing=Math.atan2(player.y-n.y, player.x-n.x);
-          // lerp facing angle
           let df = targetFacing - n.facing;
           if (df>Math.PI) df-=Math.PI*2;
           if (df<-Math.PI) df+=Math.PI*2;
@@ -531,8 +551,6 @@ function HeroPlayground({ active }) {
         }
       }
 
-      // ── glowT: smoothly track overlap state for each avatar ────────────────
-      // glowT approaches 1 when any radius overlaps, 0 when clear.
       const calcOverlap = (a) => {
         for (const b of all) {
           if (b.id===a.id) continue;
@@ -542,10 +560,9 @@ function HeroPlayground({ active }) {
       };
       for (const a of all) {
         const target = calcOverlap(a) ? 1 : 0;
-        a.glowT += (target - a.glowT) * 0.06;   // smooth lerp ~600ms
+        a.glowT += (target - a.glowT) * 0.06;
       }
 
-      // ── Player glow facing: orient toward nearest NPC in range ────────────
       {
         let nearest=null, nearestD=Infinity;
         for (const n of npcs) {
@@ -560,7 +577,6 @@ function HeroPlayground({ active }) {
         }
       }
 
-      // ── NPC proximity chat ────────────────────────────────────────────────
       for (const n of npcs) {
         const distP=Math.hypot(n.x-player.x,n.y-player.y);
         const inRange=distP<TALK_R;
@@ -580,39 +596,29 @@ function HeroPlayground({ active }) {
       }
     };
 
-    // ── Draw frame ────────────────────────────────────────────────────────────
     const draw = () => {
       const s = stateRef.current; if (!s) return;
-      const sa = sceneAlphaRef.current;   // scene fade-in (0→1)
+      const sa = sceneAlphaRef.current;
       const dpr = window.devicePixelRatio||1;
       const W=canvas.width/dpr, H=canvas.height/dpr;
       const { player, npcs } = s;
       const all = [player, ...npcs];
 
-      // ── Background — slightly dimmer warm tone than front ──────────────────
       ctx.fillStyle = "#F0EBE2"; ctx.fillRect(0,0,W,H);
 
-      // ── Grid — consistent with front face ─────────────────────────────────
       const gs=36;
       ctx.strokeStyle="#C8BFB0"; ctx.lineWidth=0.5; ctx.globalAlpha=0.20*sa;
       for(let x=gs;x<W;x+=gs){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
       for(let y=gs;y<H;y+=gs){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
-      ctx.globalAlpha=1;
+      ctx.globalAlpha=sa;
 
-      ctx.globalAlpha = sa; // fade whole scene in after flip
-
-      // ── Pass 1: voice radius circles (drawn below avatars) ────────────────
-      // Draw all radii first so they sit underneath avatars and bubbles.
       for (const a of all) drawRadius(a);
 
-      // ── Pass 2: overlap connection lines ──────────────────────────────────
-      // When two radii overlap, draw a soft dashed line between avatars.
       for (let i=0;i<all.length;i++) {
         for (let j=i+1;j<all.length;j++) {
           const a=all[i], b=all[j];
           const d=Math.hypot(a.x-b.x, a.y-b.y);
           if (d < TALK_R*2) {
-            // line opacity proportional to how deep the overlap is
             const overlapDepth = Math.max(0, 1 - d/(TALK_R*2));
             const lineT = Math.min(a.glowT, b.glowT);
             ctx.globalAlpha = overlapDepth * lineT * 0.30;
@@ -624,17 +630,13 @@ function HeroPlayground({ active }) {
         }
       }
 
-      // ── Pass 3: avatars ───────────────────────────────────────────────────
       for (const n of npcs) drawAvatar(n, false);
       drawAvatar(player, true);
-
-      // ── Pass 4: speech bubbles (topmost layer) ────────────────────────────
       for (const n of npcs) drawBubble(n);
 
       ctx.globalAlpha = 1;
     };
 
-    // ── RAF loop ──────────────────────────────────────────────────────────────
     const loop = () => {
       if (activeRef.current) { step(); draw(); }
       rafRef.current = requestAnimationFrame(loop);
@@ -647,7 +649,7 @@ function HeroPlayground({ active }) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup",   onKeyUp);
     };
-  }, []); // eslint-disable-line — intentionally runs once; active tracked via ref
+  }, []); // eslint-disable-line
 
   return (
     <>
@@ -655,8 +657,6 @@ function HeroPlayground({ active }) {
         ref={canvasRef}
         style={{ position:"absolute", inset:0, width:"100%", height:"100%", display:"block", cursor:"none" }}
       />
-
-      {/* WASD hint — appears on first flip, fades after 3.2 s */}
       <div style={{
         position:"absolute", bottom:14, left:"50%", transform:"translateX(-50%)",
         fontFamily:F.mono, fontSize:9, letterSpacing:"0.14em", textTransform:"uppercase",
@@ -671,8 +671,6 @@ function HeroPlayground({ active }) {
 }
 
 // ─── HERO FLIP CARD ───────────────────────────────────────────────────────────
-// Wraps ZentraWorld (front) and HeroPlayground (back) in a 3D flip card.
-// Tease motion fires once on first hover. Click to flip.
 function HeroFlipCard() {
   const [flipped,     setFlipped]     = useState(false);
   const [teased,      setTeased]      = useState(false);
@@ -680,20 +678,15 @@ function HeroFlipCard() {
   const [isAnimating, setIsAnimating] = useState(false);
   const [showClickHint, setShowClickHint] = useState(false);
 
-  // ── Tease on first hover ───────────────────────────────────────────────────
   const handleMouseEnter = () => {
     if (teased || flipped) return;
     setTeased(true);
     setShowClickHint(true);
-    // tilt forward
     setTeaseAngle(5);
-    // hold 150ms then return
     setTimeout(() => setTeaseAngle(0), 750);
-    // fade hint out after 2.2s
     setTimeout(() => setShowClickHint(false), 2200);
   };
 
-  // ── Full flip ──────────────────────────────────────────────────────────────
   const handleClick = () => {
     if (isAnimating) return;
     setIsAnimating(true);
@@ -705,13 +698,11 @@ function HeroFlipCard() {
 
   const innerRotate = flipped ? 180 : teaseAngle;
 
-  // Shadow deepens slightly during flip
   const shadow = (teaseAngle > 0 || isAnimating)
     ? "0 24px 64px rgba(26,24,20,0.14), 0 4px 16px rgba(26,24,20,0.08)"
     : "0 8px 40px rgba(26,24,20,0.06), 0 2px 12px rgba(26,24,20,0.04)";
 
   return (
-    // Perspective wrapper — must NOT have overflow:hidden
     <div
       style={{
         position: "relative",
@@ -725,7 +716,6 @@ function HeroFlipCard() {
       }}
       onMouseEnter={handleMouseEnter}
     >
-      {/* Inner rotating element */}
       <div
         onClick={handleClick}
         style={{
@@ -750,8 +740,6 @@ function HeroFlipCard() {
           background: C.bg,
         }}>
           <ZentraWorld active={!flipped} />
-
-          {/* Live badge */}
           <div style={{
             position: "absolute", top: 16, left: 16,
             display: "flex", alignItems: "center", gap: 7,
@@ -764,8 +752,6 @@ function HeroFlipCard() {
               Live preview
             </span>
           </div>
-
-          {/* Cursor hint */}
           <div style={{
             position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)",
             fontFamily: F.mono, fontSize: 9, letterSpacing: "0.14em",
@@ -774,8 +760,6 @@ function HeroFlipCard() {
           }}>
             Move your cursor in ↑
           </div>
-
-          {/* Tease click hint */}
           <div style={{
             position: "absolute", bottom: 34, left: "50%", transform: "translateX(-50%)",
             fontFamily: F.mono, fontSize: 9, letterSpacing: "0.14em",
@@ -798,8 +782,6 @@ function HeroFlipCard() {
           background: "#F2EDE5",
         }}>
           <HeroPlayground active={flipped} />
-
-          {/* Back badge */}
           <div style={{
             position: "absolute", top: 16, left: 16,
             display: "flex", alignItems: "center", gap: 7,
@@ -812,8 +794,6 @@ function HeroFlipCard() {
               Voice radius view
             </span>
           </div>
-
-          {/* Flip back pill */}
           <div style={{
             position: "absolute", top: 16, right: 16,
             fontFamily: F.mono, fontSize: 9, letterSpacing: "0.12em",
@@ -831,12 +811,21 @@ function HeroFlipCard() {
 // ─── HERO ─────────────────────────────────────────────────────────────────────
 export function Hero({ onCTA }) {
   const [rooms, setRooms] = useState(47);
+  const [toast, setToast] = useState(false);
+  const isMobile = useIsMobile();
+
   useEffect(() => {
     const id = setInterval(() => {
       setRooms(r => r + (Math.random() > 0.6 ? 1 : 0));
     }, 3200);
     return () => clearInterval(id);
   }, []);
+
+  // On mobile: show toast instead of opening modal
+  const handleCTA = (intent) => {
+    if (isMobile) { setToast(true); return; }
+    onCTA(intent);
+  };
 
   return (
     <section style={{
@@ -849,34 +838,145 @@ export function Hero({ onCTA }) {
       overflow: "hidden",
     }}>
 
+      {/* ── Responsive styles injected once ───────────────────── */}
+      <style>{`
+        /* ---------- Floating dock — hide completely on mobile ---------- */
+        @media (max-width: 767px) {
+          .zh-floating-dock { display: none !important; }
+        }
+
+        /* ---------- Hero ---------- */
+        .zh-hero-grid {
+          flex: 1;
+          max-width: 1600px;
+          margin: 0 auto;
+          padding: 80px 40px 60px;
+          width: 100%;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 40px;
+          align-items: center;
+        }
+        @media (max-width: 960px) {
+          .zh-hero-grid { grid-template-columns: 1fr; padding: 52px 24px 44px; gap: 40px; }
+          .zh-hero-card { display: none !important; }
+          .zh-hero-h1   { font-size: clamp(2.8rem, 8vw, 5rem) !important; }
+        }
+        @media (max-width: 600px) {
+          .zh-hero-grid       { padding: 40px 20px 36px; }
+          .zh-hero-h1         { font-size: clamp(2.6rem, 10vw, 3.8rem) !important; line-height: 1.0 !important; }
+          .zh-hero-badge      { margin-bottom: 28px !important; }
+          .zh-hero-sub        { margin-bottom: 32px !important; font-size: 16px !important; }
+          .zh-hero-ctas       { margin-bottom: 40px !important; gap: 10px !important; flex-wrap: nowrap !important; }
+          .zh-hero-hiw-link   { display: none !important; }
+          .zh-hero-stats      { grid-template-columns: repeat(2, 1fr) !important; gap: 0 !important; }
+          .zh-hero-stats > div:nth-child(2) { border-right: none !important; }
+          .zh-hero-stats > div:nth-child(3) { border-right: 1px solid ${C.border} !important; padding-left: 0 !important; }
+          .zh-hero-scroll-cue { display: none !important; }
+        }
+
+        /* ---------- How it works ---------- */
+        .zh-hiw-header {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 60px;
+          align-items: flex-end;
+          margin-bottom: 80px;
+        }
+        /* Step card desktop grid is set via className="zh-step-card-inner" */
+        .zh-step-card-inner {
+          display: grid;
+          grid-template-columns: 60px 1fr 1fr 48px;
+          gap: 36px;
+          align-items: center;
+        }
+        @media (max-width: 767px) {
+          .zh-hiw-section  { padding: 72px 20px !important; }
+          .zh-hiw-header   { grid-template-columns: 1fr !important; gap: 16px !important; margin-bottom: 40px !important; }
+          .zh-hiw-subtitle { display: none !important; }
+          .zh-step-indent  { margin-left: 0 !important; }
+          /* Each step becomes a clean vertical card */
+          .zh-step-card-inner {
+            grid-template-columns: 1fr !important;
+            gap: 12px !important;
+          }
+          /* Hide the SVG ring number — show a simple inline number instead */
+          .zh-step-num-ring { display: none !important; }
+          .zh-step-num-inline { display: flex !important; }
+          .zh-step-desc   { display: block !important; }
+          .zh-step-arrow  { display: none !important; }
+          .zh-step-pad    { padding: 22px 20px !important; border-radius: 16px !important; }
+        }
+        /* Desktop: hide simple inline number */
+        .zh-step-num-inline { display: none; align-items: center; gap: 10px; }
+
+        @media (max-width: 600px) {
+          .zh-hiw-section { padding: 64px 16px !important; }
+        }
+
+        /* ---------- Features ---------- */
+        @media (max-width: 860px) {
+          .zh-feat-header   { flex-direction: column !important; align-items: flex-start !important; gap: 16px !important; }
+          .zh-feat-subtitle { text-align: left !important; }
+          .zh-feat-row-desc { display: none !important; }
+        }
+        @media (max-width: 600px) {
+          .zh-feat-section { padding: 72px 20px !important; }
+        }
+
+        /* ---------- Callout ---------- */
+        @media (max-width: 700px) {
+          .zh-callout-section { padding: 72px 20px !important; }
+          .zh-callout-inner   { padding: 48px 28px !important; border-radius: 18px !important; }
+          .zh-callout-quote   { font-size: clamp(1.35rem, 5.5vw, 1.9rem) !important; }
+        }
+
+        /* ---------- FAQ ---------- */
+        .zh-faq-grid {
+          display: grid;
+          grid-template-columns: 5fr 7fr;
+          gap: 24px;
+          align-items: start;
+        }
+        /* On mobile: hide the whole desktop two-panel grid, show only accordion */
+        @media (max-width: 800px) {
+          .zh-faq-grid    { display: none !important; }
+          .zh-faq-mobile  { display: flex !important; }
+          .zh-faq-section { padding: 72px 20px !important; }
+        }
+        .zh-faq-mobile { display: none; flex-direction: column; gap: 10px; }
+
+        /* ---------- CTA Banner ---------- */
+        .zh-cta-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 80px;
+          align-items: center;
+        }
+        @media (max-width: 860px) {
+          .zh-cta-grid    { grid-template-columns: 1fr !important; gap: 48px !important; }
+          .zh-cta-section { padding: 72px 20px !important; }
+        }
+      `}</style>
+
       {/* Grain texture */}
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none", opacity: 0.025,
         backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
         backgroundSize: "200px" }} />
 
-      {/* Orange glow — bottom left */}
+      {/* Orange glow */}
       <div style={{ position: "absolute", bottom: "8%", left: "3%", width: 320, height: 320,
         borderRadius: "50%", background: `radial-gradient(circle, ${C.accent}0F 0%, transparent 70%)`,
         pointerEvents: "none" }} />
 
-      {/* ── Two-column layout ─────────────────────────────────────── */}
-      <div style={{
-        flex: 1,
-        maxWidth: 1600,
-        margin: "0 auto",
-        padding: "80px 40px 60px",
-        width: "100%",
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gap: 40,
-        alignItems: "center",
-      }}>
+      {/* ── Two-column layout ── */}
+      <div className="zh-hero-grid">
 
-        {/* ── LEFT: copy ──────────────────────────────────────────── */}
+        {/* LEFT: copy */}
         <div style={{ display: "flex", flexDirection: "column" }}>
 
           {/* Live badge */}
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 10,
+          <div className="zh-hero-badge" style={{ display: "inline-flex", alignItems: "center", gap: 10,
             background: C.accentBg, border: `1px solid ${C.accent}33`,
             borderRadius: 100, padding: "8px 18px", width: "fit-content",
             marginBottom: 52, animation: "heroFadeUp 0.9s ease both" }}>
@@ -890,7 +990,7 @@ export function Hero({ onCTA }) {
           </div>
 
           {/* Headline */}
-          <h1 style={{ fontFamily: F.display, fontWeight: 900, color: C.ink,
+          <h1 className="zh-hero-h1" style={{ fontFamily: F.display, fontWeight: 900, color: C.ink,
             fontSize: "clamp(3.2rem, 7vw, 6.2rem)", lineHeight: 0.95,
             letterSpacing: "-0.03em", marginBottom: 36,
             animation: "heroFadeUp 1s 0.1s ease both" }}>
@@ -899,20 +999,20 @@ export function Hero({ onCTA }) {
           </h1>
 
           {/* Sub */}
-          <p style={{ fontFamily: F.body, fontSize: "clamp(15px, 1.6vw, 18px)", color: C.inkMid,
+          <p className="zh-hero-sub" style={{ fontFamily: F.body, fontSize: "clamp(15px, 1.6vw, 18px)", color: C.inkMid,
             lineHeight: 1.75, maxWidth: 480, marginBottom: 52,
             animation: "heroFadeUp 1s 0.22s ease both" }}>
             A shared 2D world where proximity drives conversation. Walk up to someone and you're talking. Step away and you're not.
           </p>
 
-          {/* CTA */}
-          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 14,
+          {/* CTA row — always flex row, never column */}
+          <div className="zh-hero-ctas" style={{ display: "flex", flexWrap: "nowrap", alignItems: "center", gap: 14,
             marginBottom: 72, animation: "heroFadeUp 1s 0.34s ease both" }}>
-            <MagneticBtn primary onClick={() => onCTA("create")}><PlusIcon /> Create a Space</MagneticBtn>
-            <MagneticBtn onClick={() => onCTA("join")}><ArrowIcon /> Join a Space</MagneticBtn>
-            <a href="#how-it-works" style={{ fontFamily: F.mono, fontSize: 11, letterSpacing: "0.1em",
+            <MagneticBtn primary onClick={() => handleCTA("create")}><PlusIcon /> Create a Space</MagneticBtn>
+            <MagneticBtn onClick={() => handleCTA("join")}><ArrowIcon /> Join a Space</MagneticBtn>
+            <a href="#how-it-works" className="zh-hero-hiw-link" style={{ fontFamily: F.mono, fontSize: 11, letterSpacing: "0.1em",
               textTransform: "uppercase", color: C.inkLight, textDecoration: "none", paddingLeft: 8,
-              transition: "color 0.2s" }}
+              transition: "color 0.2s", whiteSpace: "nowrap" }}
               onMouseEnter={e => e.currentTarget.style.color = C.ink}
               onMouseLeave={e => e.currentTarget.style.color = C.inkLight}>
               How it works ↓
@@ -920,7 +1020,7 @@ export function Hero({ onCTA }) {
           </div>
 
           {/* Stats */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)",
+          <div className="zh-hero-stats" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)",
             borderTop: `1.5px solid ${C.border}`, paddingTop: 36,
             animation: "heroFadeUp 1s 0.46s ease both" }}>
             {STATS.map(({ value, label }, i) => (
@@ -937,16 +1037,23 @@ export function Hero({ onCTA }) {
           </div>
         </div>
 
-        {/* ── RIGHT: Flip card (front = ambient sim, back = playable room) ── */}
-        <HeroFlipCard />
+        {/* RIGHT: flip card — hidden on mobile via CSS */}
+        <div className="zh-hero-card">
+          <HeroFlipCard />
+        </div>
       </div>
 
-      {/* Scroll cue */}
-      <div style={{ padding: "0 40px 32px", maxWidth: 1200, margin: "0 auto", width: "100%",
-        display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ width: 1, height: 44, background: `linear-gradient(to bottom, ${C.accent}, transparent)` }} />
-        <span style={{ fontFamily: F.mono, fontSize: 9, letterSpacing: "0.22em", textTransform: "uppercase", color: C.inkLight }}>Scroll to explore</span>
+      {/* Scroll cue — left edge aligned with the stats grid (same max-width + padding as the hero grid) */}
+      <div className="zh-hero-scroll-cue" style={{ maxWidth: 1600, margin: "0 auto", width: "100%", padding: "0 40px 32px" }}>
+        {/* Inner wrapper constrains to the left-column width (50% of the grid) so the cue sits under <1s */}
+        <div style={{ width: "50%", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 1, height: 44, background: `linear-gradient(to bottom, ${C.accent}, transparent)` }} />
+          <span style={{ fontFamily: F.mono, fontSize: 9, letterSpacing: "0.22em", textTransform: "uppercase", color: C.inkLight }}>Scroll to explore</span>
+        </div>
       </div>
+
+      {/* Mobile toast */}
+      <MobileToast visible={toast} onHide={() => setToast(false)} />
     </section>
   );
 }
@@ -956,20 +1063,20 @@ export function HowItWorks() {
   const [hRef, hIn] = useInView();
 
   return (
-    <section id="how-it-works" style={{ background: C.bgAlt, padding: "140px 40px" }}>
+    <section className="zh-hiw-section" style={{ background: C.bgAlt, padding: "140px 40px" }}>
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        <div ref={hRef} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 60, alignItems: "flex-end", marginBottom: 80, ...revealUp(hIn) }}>
+        <div ref={hRef} className="zh-hiw-header" style={{ ...revealUp(hIn) }}>
           <div>
             <Label>How it works</Label>
             <h2 style={{ fontFamily: F.display, fontWeight: 900, fontSize: "clamp(2.4rem, 4.5vw, 3.8rem)", color: C.ink, lineHeight: 1.1, letterSpacing: "-0.025em" }}>
               Three steps.<br /><span style={{ color: C.inkLight, fontStyle: "italic" }}>That's genuinely all.</span>
             </h2>
           </div>
-          <p style={{ fontFamily: F.body, fontSize: 16, color: C.inkMid, lineHeight: 1.8, alignSelf: "flex-end" }}>
+          <p className="zh-hiw-subtitle" style={{ fontFamily: F.body, fontSize: 16, color: C.inkMid, lineHeight: 1.8, alignSelf: "flex-end" }}>
             Most tools bury you in setup, onboarding, and meeting links. We stripped all of that — you should be talking in under 60 seconds.
           </p>
         </div>
-        <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 20 }}>
+        <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 16 }}>
           {HOW_IT_WORKS.map((step, i) => <StepCard key={step.num} step={step} index={i} total={HOW_IT_WORKS.length} />)}
         </div>
       </div>
@@ -978,7 +1085,7 @@ export function HowItWorks() {
 }
 
 function StepCard({ step, index, total }) {
-  const [ref, inView] = useInView({ threshold: 0.3 });
+  const [ref, inView] = useInView({ threshold: 0.2 });
   const [h, setH] = useState(false);
 
   return (
@@ -986,12 +1093,12 @@ function StepCard({ step, index, total }) {
       ref={ref}
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
+      className="zh-step-indent zh-step-pad"
       style={{
-        opacity:   inView ? 1   : 0.12,
-        transform: inView ? "translateX(0) translateY(0)" : "translateX(-56px) translateY(10px)",
+        opacity:    inView ? 1   : 0.12,
+        transform:  inView ? "translateX(0) translateY(0)" : "translateX(-40px) translateY(8px)",
         transition: "opacity 1100ms cubic-bezier(0.16,1,0.3,1), transform 1100ms cubic-bezier(0.16,1,0.3,1), background 0.3s, border-color 0.3s, box-shadow 0.3s",
         marginLeft: index === 1 ? 60 : index === 2 ? 120 : 0,
-        display: "grid", gridTemplateColumns: "60px 1fr 1fr 48px", gap: 36, alignItems: "center",
         padding: "32px 40px", borderRadius: 18,
         background: h ? C.bg : "rgba(255,255,255,0.5)",
         border: `1.5px solid ${h ? C.accent + "44" : C.border}`,
@@ -999,28 +1106,45 @@ function StepCard({ step, index, total }) {
         cursor: "default", position: "relative",
       }}
     >
-      <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <svg width="52" height="52" viewBox="0 0 52 52" style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%) rotate(-90deg)" }}>
-          <circle cx="26" cy="26" r="22" fill="none" stroke={C.border} strokeWidth="1.5"/>
-          <circle cx="26" cy="26" r="22" fill="none" stroke={C.accent} strokeWidth="1.5"
-            strokeDasharray={`${2 * Math.PI * 22}`}
-            strokeDashoffset={inView ? 0 : 2 * Math.PI * 22}
-            style={{ transition: `stroke-dashoffset 1.4s cubic-bezier(0.16,1,0.3,1) ${index * 200}ms` }}
-          />
-        </svg>
-        <span style={{ fontFamily: F.display, fontStyle: "italic", fontWeight: 900, fontSize: 26, color: h ? C.accent : C.inkMid, letterSpacing: "-0.03em", userSelect: "none", zIndex: 1, transition: "color 0.3s" }}>
-          {step.num}
-        </span>
-      </div>
-      <div>
-        <span style={{ fontFamily: F.mono, fontSize: 10, fontWeight: 500, letterSpacing: "0.14em", textTransform: "uppercase", color: h ? C.accent : C.inkLight, background: h ? C.accentBg : C.bgAlt, border: `1px solid ${h ? C.accent + "33" : C.border}`, borderRadius: 100, padding: "4px 12px", display: "inline-block", marginBottom: 12, transition: "all 0.3s" }}>
-          {step.tag}
-        </span>
-        <h3 style={{ fontFamily: F.display, fontWeight: 700, fontSize: 22, color: C.ink, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{step.title}</h3>
-      </div>
-      <p style={{ fontFamily: F.body, fontSize: 15, color: C.inkMid, lineHeight: 1.75 }}>{step.desc}</p>
-      <div style={{ width: 40, height: 40, borderRadius: "50%", border: `1.5px solid ${h ? C.accent : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: h ? C.accent : C.inkLight, fontSize: 18, flexShrink: 0, transition: "all 0.3s", transform: h ? "translateX(4px)" : "translateX(0)" }}>
-        →
+      {/* Inner grid — class controls column layout; CSS overrides to 1-col on mobile */}
+      <div className="zh-step-card-inner">
+
+        {/* Step number with SVG ring (desktop) */}
+        <div className="zh-step-num-ring" style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <svg width="52" height="52" viewBox="0 0 52 52" style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%) rotate(-90deg)" }}>
+            <circle cx="26" cy="26" r="22" fill="none" stroke={C.border} strokeWidth="1.5"/>
+            <circle cx="26" cy="26" r="22" fill="none" stroke={C.accent} strokeWidth="1.5"
+              strokeDasharray={`${2 * Math.PI * 22}`}
+              strokeDashoffset={inView ? 0 : 2 * Math.PI * 22}
+              style={{ transition: `stroke-dashoffset 1.4s cubic-bezier(0.16,1,0.3,1) ${index * 200}ms` }}
+            />
+          </svg>
+          <span style={{ fontFamily: F.display, fontStyle: "italic", fontWeight: 900, fontSize: 26, color: h ? C.accent : C.inkMid, letterSpacing: "-0.03em", userSelect: "none", zIndex: 1, transition: "color 0.3s" }}>
+            {step.num}
+          </span>
+        </div>
+
+        {/* Title + tag */}
+        <div>
+          {/* Mobile: inline step number pill above tag */}
+          <div className="zh-step-num-inline" style={{ marginBottom: 10 }}>
+            <span style={{ fontFamily: F.mono, fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: C.accent, background: C.accentBg, border: `1px solid ${C.accent}33`, borderRadius: 100, padding: "3px 10px" }}>
+              Step {step.num}
+            </span>
+          </div>
+          <span style={{ fontFamily: F.mono, fontSize: 10, fontWeight: 500, letterSpacing: "0.14em", textTransform: "uppercase", color: h ? C.accent : C.inkLight, background: h ? C.accentBg : C.bgAlt, border: `1px solid ${h ? C.accent + "33" : C.border}`, borderRadius: 100, padding: "4px 12px", display: "inline-block", marginBottom: 12, transition: "all 0.3s" }}>
+            {step.tag}
+          </span>
+          <h3 style={{ fontFamily: F.display, fontWeight: 700, fontSize: 22, color: C.ink, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{step.title}</h3>
+        </div>
+
+        {/* Description */}
+        <p className="zh-step-desc" style={{ fontFamily: F.body, fontSize: 15, color: C.inkMid, lineHeight: 1.75 }}>{step.desc}</p>
+
+        {/* Arrow */}
+        <div className="zh-step-arrow" style={{ width: 40, height: 40, borderRadius: "50%", border: `1.5px solid ${h ? C.accent : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: h ? C.accent : C.inkLight, fontSize: 18, flexShrink: 0, transition: "all 0.3s", transform: h ? "translateX(4px)" : "translateX(0)" }}>
+          →
+        </div>
       </div>
     </div>
   );
@@ -1031,7 +1155,7 @@ export function Features() {
   const [hRef, hIn] = useInView();
 
   return (
-    <section id="features" style={{ background: C.ink, padding: "140px 40px", overflow: "hidden", position: "relative" }}>
+    <section className="zh-feat-section" id="features" style={{ background: C.ink, padding: "140px 40px", overflow: "hidden", position: "relative" }}>
       <div style={{
         position: "absolute", inset: "-32px",
         backgroundImage: `linear-gradient(rgba(232,226,218,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(232,226,218,0.04) 1px, transparent 1px)`,
@@ -1046,7 +1170,7 @@ export function Features() {
         pointerEvents: "none",
       }} />
       <div style={{ maxWidth: 1200, margin: "0 auto", position: "relative", zIndex: 1 }}>
-        <div ref={hRef} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 80, ...revealUp(hIn, 0, 1100) }}>
+        <div ref={hRef} className="zh-feat-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 80, ...revealUp(hIn, 0, 1100) }}>
           <div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
               <div style={{ width: 28, height: 1.5, background: C.accent }} />
@@ -1057,7 +1181,7 @@ export function Features() {
               <em style={{ fontStyle: "italic", color: "rgba(250,247,242,0.2)" }}>Nothing you don't.</em>
             </h2>
           </div>
-          <p style={{ fontFamily: F.body, fontSize: 15, color: "#6B6359", lineHeight: 1.8, maxWidth: 320, textAlign: "right" }}>
+          <p className="zh-feat-subtitle" style={{ fontFamily: F.body, fontSize: 15, color: "#6B6359", lineHeight: 1.8, maxWidth: 320, textAlign: "right" }}>
             If it doesn't make spatial communication better, it's not here.
           </p>
         </div>
@@ -1089,7 +1213,7 @@ function FeatureRow({ f, index }) {
       <h3 style={{ fontFamily: F.display, fontWeight: 700, fontSize: "clamp(1.25rem, 2.2vw, 1.75rem)", color: h ? "#FAF7F2" : "rgba(250,247,242,0.45)", flex: 1, lineHeight: 1.2, letterSpacing: "-0.01em", transition: "color 0.45s" }}>
         {f.title}
       </h3>
-      <p style={{ fontFamily: F.body, fontSize: 14, color: h ? "#A89E94" : "rgba(168,158,148,0.3)", lineHeight: 1.7, maxWidth: 280, textAlign: "right", transition: "color 0.45s" }}>
+      <p className="zh-feat-row-desc" style={{ fontFamily: F.body, fontSize: 14, color: h ? "#A89E94" : "rgba(168,158,148,0.3)", lineHeight: 1.7, maxWidth: 280, textAlign: "right", transition: "color 0.45s" }}>
         {f.desc}
       </p>
       <div style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0, border: `1.5px solid ${h ? C.accent : "rgba(255,255,255,0.1)"}`, background: h ? `${C.accent}18` : "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: h ? C.accent : "rgba(255,255,255,0.2)", fontSize: 16, transition: "all 0.35s", transform: h ? "translateX(4px)" : "translateX(0)" }}>
@@ -1100,9 +1224,6 @@ function FeatureRow({ f, index }) {
 }
 
 // ─── CALLOUT ──────────────────────────────────────────────────────────────────
-// Upgraded: atmospheric depth card with layered bg, floating idle motion,
-// and subtle presence dots. No avatars, no canvas, no complex visuals.
-
 function PresenceDots() {
   return (
     <>
@@ -1134,28 +1255,22 @@ export function Callout() {
   const [ref, inView] = useInView();
 
   return (
-    <section style={{ background: C.bgAlt, padding: "140px 40px" }}>
-      <style>{`
-        @keyframes callout-idle{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
-      `}</style>
+    <section className="zh-callout-section" style={{ background: C.bgAlt, padding: "140px 40px" }}>
+      <style>{`@keyframes callout-idle{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}`}</style>
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
         <div
           ref={ref}
+          className="zh-callout-inner"
           style={{
             ...revealUp(inView, 0, 1300),
-            animation: inView
-              ? "callout-idle 7s ease-in-out infinite"
-              : undefined,
+            animation: inView ? "callout-idle 7s ease-in-out infinite" : undefined,
             position: "relative",
             borderRadius: 24,
             overflow: "hidden",
             padding: "96px 96px",
             cursor: "default",
-            /* Layer 1 — gradient base */
             background: `linear-gradient(150deg, ${C.bg} 0%, #F0ECE4 60%, #EAE4DA 100%)`,
-            /* Layer 2 — soft border */
             border: `1.5px solid ${C.border}`,
-            /* Layer 3 — depth shadows */
             boxShadow: [
               `inset 0 1px 0 rgba(255,255,255,0.75)`,
               `0 1px 0 rgba(255,255,255,0.5)`,
@@ -1164,29 +1279,14 @@ export function Callout() {
             ].join(", "),
           }}
         >
-          {/* Very subtle noise texture overlay — Layer 4 */}
-          <div style={{
-            position: "absolute", inset: 0, pointerEvents: "none",
-            opacity: 0.018,
+          <div style={{ position: "absolute", inset: 0, pointerEvents: "none", opacity: 0.018,
             backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
-            backgroundSize: "180px",
-          }} />
-
-          {/* Accent left bar */}
+            backgroundSize: "180px" }} />
           <div style={{ position: "absolute", top: 0, left: 0, width: 4, height: "100%", background: `linear-gradient(to bottom, ${C.accent}, ${C.accent}00)`, borderRadius: "24px 0 0 24px" }} />
-
-          {/* Oversized decorative quote */}
-          <div style={{
-            position: "absolute", top: -20, left: 72,
-            fontFamily: F.display, fontWeight: 900, fontSize: 280,
-            color: C.accent, opacity: 0.05, lineHeight: 1,
-            userSelect: "none", pointerEvents: "none",
-          }}>"</div>
-
-          {/* Content */}
+          <div style={{ position: "absolute", top: -20, left: 72, fontFamily: F.display, fontWeight: 900, fontSize: 280, color: C.accent, opacity: 0.05, lineHeight: 1, userSelect: "none", pointerEvents: "none" }}>"</div>
           <div style={{ position: "relative", zIndex: 1, maxWidth: 700 }}>
             <p style={{ fontFamily: F.mono, fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: C.accent, marginBottom: 28 }}>The idea</p>
-            <blockquote style={{ fontFamily: F.display, fontWeight: 700, fontStyle: "italic", fontSize: "clamp(1.7rem, 3.2vw, 2.6rem)", color: C.ink, lineHeight: 1.3, letterSpacing: "-0.015em", marginBottom: 36 }}>
+            <blockquote className="zh-callout-quote" style={{ fontFamily: F.display, fontWeight: 700, fontStyle: "italic", fontSize: "clamp(1.7rem, 3.2vw, 2.6rem)", color: C.ink, lineHeight: 1.3, letterSpacing: "-0.015em", marginBottom: 36 }}>
               "The best remote conversations happen when they don't feel scheduled."
             </blockquote>
             <p style={{ fontFamily: F.body, fontSize: 16, color: C.inkMid, lineHeight: 1.8, maxWidth: 540 }}>
@@ -1201,15 +1301,13 @@ export function Callout() {
 }
 
 // ─── FAQ ──────────────────────────────────────────────────────────────────────
-// Upgraded: two-panel layout — questions left, answer right.
-// Switching questions cross-fades the answer panel instead of accordion jumping.
-
-const FAQ_DATA = FAQS; // use existing FAQS constant from landing_cs
+const FAQ_DATA = FAQS;
 
 export function FAQ() {
-  const [hRef, hIn] = useInView();
-  const [active,  setActive]  = useState(0);
-  const [fading,  setFading]  = useState(false);
+  const [hRef, hIn]     = useInView();
+  const [active, setActive] = useState(0);
+  const [fading, setFading] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(null);
 
   const handleSelect = (id) => {
     if (id === active) return;
@@ -1220,10 +1318,8 @@ export function FAQ() {
   const current = FAQ_DATA[active] ?? FAQ_DATA[0];
 
   return (
-    <section id="faq" style={{ background: C.bg, padding: "140px 40px" }}>
-      <style>{`
-        @keyframes faq-dot{0%,100%{opacity:.25;transform:scale(1)}50%{opacity:.8;transform:scale(1.5)}}
-      `}</style>
+    <section id="faq" className="zh-faq-section" style={{ background: C.bg, padding: "140px 40px" }}>
+      <style>{`@keyframes faq-dot{0%,100%{opacity:.25;transform:scale(1)}50%{opacity:.8;transform:scale(1.5)}}`}</style>
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
 
         {/* Header */}
@@ -1234,16 +1330,10 @@ export function FAQ() {
           </h2>
         </div>
 
-        {/* Two-panel body */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "5fr 7fr",
-          gap: 24,
-          alignItems: "start",
-          ...revealUp(hIn, 120, 1100),
-        }}>
+        {/* Desktop two-panel */}
+        <div className="zh-faq-grid" style={{ ...revealUp(hIn, 120, 1100) }}>
 
-          {/* ── LEFT — question list ──────────────────────────────── */}
+          {/* Left — question list */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {FAQ_DATA.map((item, i) => {
               const isActive = i === active;
@@ -1263,119 +1353,60 @@ export function FAQ() {
                     transition: "background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease",
                   }}
                 >
-                  {/* Pulse dot */}
-                  <span style={{
-                    flexShrink: 0, display: "block", borderRadius: "50%",
-                    width: 7, height: 7,
-                    background: isActive ? C.accent : C.borderDark,
-                    animation: isActive ? `faq-dot 2.6s ease-in-out ${i * 0.3}s infinite` : "none",
-                    transition: "background 0.2s ease",
-                  }} />
-                  <span style={{
-                    fontFamily: F.display, fontWeight: 700, fontSize: 15,
-                    color: isActive ? C.accent : C.inkMid,
-                    lineHeight: 1.4,
-                    transition: "color 0.2s ease",
-                    flex: 1,
-                  }}>
-                    {item.q}
-                  </span>
-                  {/* Active indicator */}
-                  <span style={{
-                    fontFamily: F.mono, fontSize: 11, color: C.accent,
-                    opacity: isActive ? 1 : 0,
-                    transform: isActive ? "translateX(0)" : "translateX(-6px)",
-                    transition: "opacity 0.25s ease, transform 0.25s ease",
-                    flexShrink: 0,
-                  }}>→</span>
+                  <span style={{ flexShrink: 0, display: "block", borderRadius: "50%", width: 7, height: 7, background: isActive ? C.accent : C.borderDark, animation: isActive ? `faq-dot 2.6s ease-in-out ${i * 0.3}s infinite` : "none", transition: "background 0.2s ease" }} />
+                  <span style={{ fontFamily: F.display, fontWeight: 700, fontSize: 15, color: isActive ? C.accent : C.inkMid, lineHeight: 1.4, transition: "color 0.2s ease", flex: 1 }}>{item.q}</span>
+                  <span style={{ fontFamily: F.mono, fontSize: 11, color: C.accent, opacity: isActive ? 1 : 0, transform: isActive ? "translateX(0)" : "translateX(-6px)", transition: "opacity 0.25s ease, transform 0.25s ease", flexShrink: 0 }}>→</span>
                 </button>
               );
             })}
           </div>
 
-          {/* ── RIGHT — answer panel ──────────────────────────────── */}
-          <div style={{
-            position: "relative",
-            borderRadius: 20,
-            border: `1.5px solid ${C.border}`,
-            background: C.bgAlt,
-            padding: "40px 48px",
-            minHeight: 260,
-            boxShadow: "0 4px 24px rgba(26,24,20,0.05)",
-            overflow: "hidden",
+          {/* Right — answer panel */}
+          <div className="zh-faq-answer" style={{
+            position: "relative", borderRadius: 20, border: `1.5px solid ${C.border}`,
+            background: C.bgAlt, padding: "40px 48px", minHeight: 260,
+            boxShadow: "0 4px 24px rgba(26,24,20,0.05)", overflow: "hidden",
           }}>
-            {/* Top accent line */}
             <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(to right, ${C.accent}88, transparent)`, borderRadius: "20px 20px 0 0" }} />
-
-            {/* Counter badge */}
-            <div style={{
-              display: "inline-flex", alignItems: "center", gap: 8,
-              borderRadius: 100, padding: "4px 12px", marginBottom: 24,
-              background: C.accentBg, border: `1px solid ${C.accent}33`,
-              fontFamily: F.mono, fontSize: 9, letterSpacing: "0.14em", textTransform: "uppercase", color: C.accent,
-            }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, borderRadius: 100, padding: "4px 12px", marginBottom: 24, background: C.accentBg, border: `1px solid ${C.accent}33`, fontFamily: F.mono, fontSize: 9, letterSpacing: "0.14em", textTransform: "uppercase", color: C.accent }}>
               <span style={{ display: "block", width: 5, height: 5, borderRadius: "50%", background: C.accent, animation: "faq-dot 2.2s ease-in-out infinite" }} />
               {String(active + 1).padStart(2, "0")} of {FAQ_DATA.length}
             </div>
-
-            {/* Fading answer content */}
-            <div style={{
-              opacity: fading ? 0 : 1,
-              transform: fading ? "translateY(8px)" : "translateY(0)",
-              transition: "opacity 0.18s ease, transform 0.22s ease",
-            }}>
-              <h3 style={{ fontFamily: F.display, fontWeight: 700, fontSize: "clamp(1.1rem, 1.6vw, 1.45rem)", color: C.ink, lineHeight: 1.3, letterSpacing: "-0.01em", marginBottom: 20 }}>
-                {current.q}
-              </h3>
-              <p style={{ fontFamily: F.body, fontSize: 15, color: C.inkMid, lineHeight: 1.82 }}>
-                {current.a}
-              </p>
+            <div style={{ opacity: fading ? 0 : 1, transform: fading ? "translateY(8px)" : "translateY(0)", transition: "opacity 0.18s ease, transform 0.22s ease" }}>
+              <h3 style={{ fontFamily: F.display, fontWeight: 700, fontSize: "clamp(1.1rem, 1.6vw, 1.45rem)", color: C.ink, lineHeight: 1.3, letterSpacing: "-0.01em", marginBottom: 20 }}>{current.q}</h3>
+              <p style={{ fontFamily: F.body, fontSize: 15, color: C.inkMid, lineHeight: 1.82 }}>{current.a}</p>
             </div>
-
-            {/* Prev / Next + dot scrubber */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 40, paddingTop: 24, borderTop: `1px solid ${C.border}` }}>
-              <button
-                onClick={() => handleSelect(Math.max(0, active - 1))}
-                disabled={active === 0}
-                style={{
-                  fontFamily: F.mono, fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase",
-                  padding: "6px 12px", borderRadius: 8, cursor: active === 0 ? "default" : "pointer",
-                  background: "transparent", border: `1px solid ${C.border}`,
-                  color: active === 0 ? C.inkLight + "66" : C.inkLight,
-                  opacity: active === 0 ? 0.45 : 1, transition: "all 0.2s ease",
-                }}
-              >← prev</button>
-              <button
-                onClick={() => handleSelect(Math.min(FAQ_DATA.length - 1, active + 1))}
-                disabled={active === FAQ_DATA.length - 1}
-                style={{
-                  fontFamily: F.mono, fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase",
-                  padding: "6px 12px", borderRadius: 8, cursor: active === FAQ_DATA.length - 1 ? "default" : "pointer",
-                  background: "transparent", border: `1px solid ${C.border}`,
-                  color: active === FAQ_DATA.length - 1 ? C.inkLight + "66" : C.inkLight,
-                  opacity: active === FAQ_DATA.length - 1 ? 0.45 : 1, transition: "all 0.2s ease",
-                }}
-              >next →</button>
-
-              {/* Dot scrubber */}
+              <button onClick={() => handleSelect(Math.max(0, active - 1))} disabled={active === 0} style={{ fontFamily: F.mono, fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", padding: "6px 12px", borderRadius: 8, cursor: active === 0 ? "default" : "pointer", background: "transparent", border: `1px solid ${C.border}`, color: active === 0 ? C.inkLight + "66" : C.inkLight, opacity: active === 0 ? 0.45 : 1, transition: "all 0.2s ease" }}>← prev</button>
+              <button onClick={() => handleSelect(Math.min(FAQ_DATA.length - 1, active + 1))} disabled={active === FAQ_DATA.length - 1} style={{ fontFamily: F.mono, fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", padding: "6px 12px", borderRadius: 8, cursor: active === FAQ_DATA.length - 1 ? "default" : "pointer", background: "transparent", border: `1px solid ${C.border}`, color: active === FAQ_DATA.length - 1 ? C.inkLight + "66" : C.inkLight, opacity: active === FAQ_DATA.length - 1 ? 0.45 : 1, transition: "all 0.2s ease" }}>next →</button>
               <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-                {FAQ_DATA.map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleSelect(i)}
-                    style={{
-                      display: "block", border: "none", cursor: "pointer", borderRadius: 100,
-                      height: 6,
-                      width: i === active ? 20 : 6,
-                      background: i === active ? C.accent : C.borderDark,
-                      transition: "width 0.3s cubic-bezier(0.16,1,0.3,1), background 0.2s ease",
-                    }}
-                  />
-                ))}
+                {FAQ_DATA.map((_, i) => <button key={i} onClick={() => handleSelect(i)} style={{ display: "block", border: "none", cursor: "pointer", borderRadius: 100, height: 6, width: i === active ? 20 : 6, background: i === active ? C.accent : C.borderDark, transition: "width 0.3s cubic-bezier(0.16,1,0.3,1), background 0.2s ease" }} />)}
               </div>
             </div>
           </div>
         </div>
+
+        {/* Mobile accordion — visible only at ≤800px via CSS */}
+        <div className="zh-faq-mobile" style={{ marginTop: 8, ...revealUp(hIn, 120, 1100) }}>
+          {FAQ_DATA.map((item, i) => {
+            const open = mobileOpen === i;
+            return (
+              <div key={i} style={{ borderRadius: 16, overflow: "hidden", border: `1.5px solid ${open ? C.accent + "55" : C.border}`, background: open ? C.accentBg : C.bg, transition: "border-color 0.3s ease, background 0.3s ease" }}>
+                <button
+                  onClick={() => setMobileOpen(open ? null : i)}
+                  style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, textAlign: "left", cursor: "pointer", background: "transparent", border: "none", padding: "18px 20px" }}
+                >
+                  <span style={{ fontFamily: F.display, fontWeight: 700, fontSize: 15, color: open ? C.accent : C.ink, lineHeight: 1.4, transition: "color 0.25s" }}>{item.q}</span>
+                  <span style={{ flexShrink: 0, width: 28, height: 28, borderRadius: "50%", border: `1.5px solid ${open ? C.accent : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: open ? C.accent : C.inkLight, fontSize: 18, lineHeight: 1, transform: open ? "rotate(45deg)" : "rotate(0deg)", transition: "all 0.35s" }}>+</span>
+                </button>
+                <div style={{ maxHeight: open ? 300 : 0, overflow: "hidden", transition: "max-height 0.4s cubic-bezier(0.16,1,0.3,1)" }}>
+                  <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkMid, lineHeight: 1.8, padding: "0 20px 20px" }}>{item.a}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
       </div>
     </section>
   );
@@ -1385,6 +1416,13 @@ export function FAQ() {
 export function CTABanner({ onCTA }) {
   const [lRef, lIn] = useInView();
   const [rRef, rIn] = useInView();
+  const [toast, setToast] = useState(false);
+  const isMobile = useIsMobile();
+
+  const handleCTA = (intent) => {
+    if (isMobile) { setToast(true); return; }
+    onCTA(intent);
+  };
 
   const items = [
     "Walk up to talk — no scheduling, ever",
@@ -1396,9 +1434,9 @@ export function CTABanner({ onCTA }) {
   ];
 
   return (
-    <section style={{ background: C.bgAlt, padding: "140px 40px", borderTop: `1.5px solid ${C.border}` }}>
+    <section className="zh-cta-section" style={{ background: C.bgAlt, padding: "140px 40px", borderTop: `1.5px solid ${C.border}` }}>
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "center" }}>
+        <div className="zh-cta-grid">
 
           <div ref={lRef} style={revealLeft(lIn, 0, 1200)}>
             <Label>Get started</Label>
@@ -1409,8 +1447,8 @@ export function CTABanner({ onCTA }) {
               No account. No credit card. Pick a name, create or join a room, and be talking in under a minute.
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
-              <MagneticBtn primary onClick={() => onCTA("create")}><PlusIcon /> Create a Space</MagneticBtn>
-              <MagneticBtn onClick={() => onCTA("join")}><ArrowIcon /> Join a Space</MagneticBtn>
+              <MagneticBtn primary onClick={() => handleCTA("create")}><PlusIcon /> Create a Space</MagneticBtn>
+              <MagneticBtn onClick={() => handleCTA("join")}><ArrowIcon /> Join a Space</MagneticBtn>
             </div>
           </div>
 
@@ -1427,6 +1465,7 @@ export function CTABanner({ onCTA }) {
 
         </div>
       </div>
+      <MobileToast visible={toast} onHide={() => setToast(false)} />
     </section>
   );
 }
