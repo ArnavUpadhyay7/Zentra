@@ -8,8 +8,12 @@ const app = express();
 app.use(cors());
 
 const server = http.createServer(app);
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",")
+  : ["http://localhost:5173", "https://zentra-space.vercel.app"];
+
 const io = new Server(server, {
-  cors: { origin: "http://localhost:5173" },
+  cors: { origin: ALLOWED_ORIGINS, methods: ["GET", "POST"] },
 });
 
 // { [roomId]: { players: { [socketId]: {username,x,y,charIndex} }, nextCharacterIndex, mapId } }
@@ -245,5 +249,5 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = 4001;
+const PORT = process.env.PORT || 4001;
 server.listen(PORT, () => console.log(`Server listening on :${PORT}`));
