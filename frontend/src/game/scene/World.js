@@ -10,15 +10,12 @@ export default class World extends Phaser.Scene {
       console.error("Phaser load error:", file.key, file.src);
     });
 
-    // Dungeon map
     this.load.tilemapTiledJSON("map", "/assets/maps/tiny-dungeon.json");
     this.load.image("tiles", "/assets/tiles/dungeon.png");
 
-    // Indoor map (roguelike-rpg-pack spritesheet)
     this.load.tilemapTiledJSON("indoor", "/assets/maps/indoor.json");
     this.load.image("indoorTiles", "/assets/tiles/roguelikeSheet_transparent.png");
 
-    // All 6 character spritesheets
     for (let i = 1; i <= 6; i++) {
       this.load.spritesheet(
         `player${i}`,
@@ -30,43 +27,24 @@ export default class World extends Phaser.Scene {
 
   createAnims(index) {
     const key = `player${index}`;
-    this.anims.create({
-      key: `walk-up-${index}`,
-      frames: this.anims.generateFrameNumbers(key, { start: 8, end: 11 }),
-      frameRate: 8,
-      repeat: -1,
-    });
-    this.anims.create({
-      key: `walk-down-${index}`,
-      frames: this.anims.generateFrameNumbers(key, { start: 4, end: 7 }),
-      frameRate: 8,
-      repeat: -1,
-    });
-    this.anims.create({
-      key: `walk-right-${index}`,
-      frames: this.anims.generateFrameNumbers(key, { start: 0, end: 3 }),
-      frameRate: 8,
-      repeat: -1,
-    });
-    this.anims.create({
-      key: `walk-left-${index}`,
-      frames: this.anims.generateFrameNumbers(key, { start: 0, end: 3 }),
-      frameRate: 8,
-      repeat: -1,
-    });
-    this.anims.create({
-      key: `idle-down-${index}`,
-      frames: [{ key, frame: 4 }],
-      frameRate: 1,
-    });
+    this.anims.create({ key: `walk-up-${index}`,   frames: this.anims.generateFrameNumbers(key, { start: 8, end: 11 }), frameRate: 8, repeat: -1 });
+    this.anims.create({ key: `walk-down-${index}`,  frames: this.anims.generateFrameNumbers(key, { start: 4, end: 7  }), frameRate: 8, repeat: -1 });
+    this.anims.create({ key: `walk-right-${index}`, frames: this.anims.generateFrameNumbers(key, { start: 0, end: 3  }), frameRate: 8, repeat: -1 });
+    this.anims.create({ key: `walk-left-${index}`,  frames: this.anims.generateFrameNumbers(key, { start: 0, end: 3  }), frameRate: 8, repeat: -1 });
+    this.anims.create({ key: `idle-down-${index}`,  frames: [{ key, frame: 4 }], frameRate: 1 });
   }
 
   addOtherPlayer(id, data) {
-    const charKey = `player${data.charIndex}`;
+    // Guard: never double-add the same player
+    if (this.otherPlayers[id]) return;
+
+    // charIndex must be valid (1-6), fall back to 1 if missing
+    const ci      = data.charIndex || 1;
+    const charKey = `player${ci}`;
 
     const sprite = this.physics.add.sprite(data.x, data.y, charKey);
     sprite.setScale(1.5);
-    sprite.play(`idle-down-${data.charIndex}`);
+    sprite.play(`idle-down-${ci}`);
 
     const label = this.add.text(0, 0, data.username, {
       fontSize: "6px",
@@ -79,47 +57,32 @@ export default class World extends Phaser.Scene {
     label.setDepth(10);
     label.setOrigin(0.5, 1);
 
-    this.otherPlayers[id] = { sprite, label, charIndex: data.charIndex };
+    this.otherPlayers[id] = { sprite, label, charIndex: ci };
   }
 
   create() {
-    // ── Read registry ─────────────────────────────────────────────────────────
-    const socket      = this.registry.get("socket");
+    // ── Read data — __vsGameData is set synchronously before new Phaser.Game() ──
+    const gd          = window.__vsGameData || {};
+    const socket      = gd.socket      || this.registry.get("socket");
+    const myCharIndex = gd.charIndex   || this.registry.get("charIndex") || 1;
+    const username    = gd.username    || this.registry.get("username")  || localStorage.getItem("vs_username") || "Player";
+    const roomId      = gd.roomId      || this.registry.get("roomId");
+    const mapId       = gd.mapId       || this.registry.get("mapId")     || "indoor";
     const myId        = socket.id;
-    const myCharIndex = this.registry.get("charIndex") || 1;
-    const username    = this.registry.get("username") || localStorage.getItem("vs_username") || "Player";
-    const roomId      = this.registry.get("roomId");
-    const mapId       = this.registry.get("mapId") || "indoor";
 
     // ── Map setup ─────────────────────────────────────────────────────────────
     let map, collisionLayer;
 
     if (mapId === "indoor") {
       map = this.make.tilemap({ key: "indoor" });
-
-      // roguelike-rpg-pack: margin=0, spacing=1
-      const tileset = map.addTilesetImage(
-        "roguelikeSheet_transparent",
-        "indoorTiles"
-      );
-      if (!tileset) {
-        console.error("Failed to load indoor tileset — check image key and JSON tileset name match");
-      }
-
-      // Floor layer — collide on walls (beige border tiles) and void (0)
-      // Walkable = orange brick (120), stone (121), beige inner floor (698, 700)
-      // Everything else (0 = void, 699/701/702/757-759/869-875 = wall tiles) blocks
+      const tileset = map.addTilesetImage("roguelikeSheet_transparent", "indoorTiles");
+      if (!tileset) console.error("Failed to load indoor tileset");
       collisionLayer = map.createLayer("Floor", tileset, 0, 0);
-      const walkableTileIds = [120, 121, 698, 700];
-      collisionLayer.setCollisionByExclusion(walkableTileIds, true);
-
-      // Visual-only layers stacked on top
+      collisionLayer.setCollisionByExclusion([120, 121, 698, 700], true);
       map.createLayer("Carpet",  tileset, 0, 0);
       map.createLayer("Objects", tileset, 0, 0);
       map.createLayer("Details", tileset, 0, 0);
-
     } else {
-      // tiny-dungeon
       map = this.make.tilemap({ key: "map" });
       const tileset = map.addTilesetImage("tileset", "tiles");
       collisionLayer = map.createLayer("Dungeon", tileset, 0, 0);
@@ -129,12 +92,12 @@ export default class World extends Phaser.Scene {
     // ── Animations ────────────────────────────────────────────────────────────
     for (let i = 1; i <= 6; i++) this.createAnims(i);
 
-    // ── Player ────────────────────────────────────────────────────────────────
-    // Indoor: spawn in centre of main hall (map 52x40, hall centre ~pixel 416,240)
+    // ── Player spawn ──────────────────────────────────────────────────────────
+    // Read from __vsGameData (set before Phaser construction) — guaranteed correct.
     const defaultSpawnX = mapId === "indoor" ? 416 : Math.floor(map.widthInPixels  / 2);
     const defaultSpawnY = mapId === "indoor" ? 240 : Math.floor(map.heightInPixels / 2);
-    const spawnX = this.registry.get("spawnX") || defaultSpawnX;
-    const spawnY = this.registry.get("spawnY") || defaultSpawnY;
+    const spawnX = gd.spawnX || this.registry.get("spawnX") || defaultSpawnX;
+    const spawnY = gd.spawnY || this.registry.get("spawnY") || defaultSpawnY;
 
     this.player = this.physics.add.sprite(spawnX, spawnY, `player${myCharIndex}`);
     this.player.setScale(1.5);
@@ -165,7 +128,6 @@ export default class World extends Phaser.Scene {
     socket.once("room-state", ({ players }) => {
       Object.entries(players).forEach(([id, data]) => {
         if (id === myId) return;
-        if (this.otherPlayers[id]) return;
         this.addOtherPlayer(id, data);
       });
     });
@@ -173,7 +135,6 @@ export default class World extends Phaser.Scene {
     socket.on("player-joined", ({ players }) => {
       Object.entries(players).forEach(([id, data]) => {
         if (id === myId) return;
-        if (this.otherPlayers[id]) return;
         this.addOtherPlayer(id, data);
       });
     });
@@ -198,7 +159,7 @@ export default class World extends Phaser.Scene {
       }
     });
 
-    // ── Camera — follow player, zoom 4x ──────────────────────────────────────
+    // ── Camera ────────────────────────────────────────────────────────────────
     this.cameras.main.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
     this.cameras.main.setZoom(3);
     this.cameras.main.startFollow(this.player, true);
