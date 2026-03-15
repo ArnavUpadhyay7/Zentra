@@ -205,17 +205,31 @@ export default function Landing() {
     });
   };
 
+  // ── Join flow ─────────────────────────────────────────────────────────────
+  // Uses join-success (not player-joined) so we receive charIndex from the
+  // server — each player gets a unique character (1-6) and spawn position.
   const handleJoinSuccess = ({ username, roomId }) => {
     setModal(null);
     import("../socket/socket").then(({ default: socket }) => {
       if (socket.disconnected) socket.connect();
-      socket.once("player-joined", ({ mapId }) => {
-        navigate(`/game/${roomId}`, { state: { username, roomId, mapId: mapId || "indoor" } });
+
+      socket.once("join-success", ({ charIndex, mapId }) => {
+        navigate(`/game/${roomId}`, {
+          state: { username, roomId, charIndex, mapId },
+        });
       });
+
       socket.once("join-error", ({ message }) => {
         setModal({ intent: "join", prefillRoomId: roomId, error: message });
       });
-      socket.emit("join-room", { roomId, username });
+
+      // Wait for connection before emitting — socket.connect() is async
+      const emitJoin = () => socket.emit("join-room", { roomId, username });
+      if (socket.connected) {
+        emitJoin();
+      } else {
+        socket.once("connect", emitJoin);
+      }
     });
   };
 

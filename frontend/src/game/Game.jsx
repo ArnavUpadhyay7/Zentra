@@ -39,9 +39,19 @@ export default function Game() {
   useEffect(() => {
     if (socket.disconnected) socket.connect();
 
-    // Set BEFORE new Phaser.Game() — scene.create() runs synchronously
-    // during construction, so registry.set() calls after would be too late.
-    window.__vsGameData = { socket, charIndex, roomId, username, mapId, myId: socket.id };
+    // Spawn position mirrors the server's SPAWNS table — must be set
+    // BEFORE new Phaser.Game() so World.create() reads it on first tick.
+    const SPAWNS = {
+      "indoor":       [[416,240],[316,240],[516,240],[416,160],[316,320],[516,320]],
+      "tiny-dungeon": [[416,320],[316,320],[516,320],[416,220],[316,420],[516,420]],
+    };
+    const spawnList = SPAWNS[mapId] || SPAWNS["indoor"];
+    const spawn     = spawnList[(charIndex - 1) % spawnList.length];
+
+    window.__vsGameData = {
+      socket, charIndex, roomId, username, mapId, myId: socket.id,
+      spawnX: spawn[0], spawnY: spawn[1],
+    };
 
     const game = new Phaser.Game({
       type:            Phaser.AUTO,
@@ -60,6 +70,8 @@ export default function Game() {
     game.registry.set("username",  username);
     game.registry.set("myId",      socket.id);
     game.registry.set("mapId",     mapId);
+    game.registry.set("spawnX",    spawn[0]);
+    game.registry.set("spawnY",    spawn[1]);
 
     game.events.once("ready", () => {
       game.registry.set("myId", socket.id);
