@@ -15,9 +15,18 @@ const io = new Server(server, {
 // { [roomId]: { players: { [socketId]: {username,x,y,charIndex} }, nextCharacterIndex } }
 const rooms = {};
 
+// ── Proximity state (OUTSIDE connection handler so all sockets share it) ──────
+// proximityState[id] = Set of socket IDs currently in range of that player
+// lockedPair[id]     = socket ID of active chat partner
+//   Lock is set when two players enter range. It only breaks when the locked
+//   partner actually moves OUT of range — a third player entering doesn't replace.
+const proximityState = {};
+const lockedPair     = {};
+
 io.on("connection", (socket) => {
   console.log("socket connected:", socket.id);
 
+  // ── Create room ───────────────────────────────────────────────────────────
   socket.on("create-room", (data) => {
     const roomId = nanoid(8);
     rooms[roomId] = { players: {}, nextCharacterIndex: 1, mapId: data.mapId || "indoor" };
@@ -45,6 +54,7 @@ io.on("connection", (socket) => {
     });
   });
 
+  // ── Join room ─────────────────────────────────────────────────────────────
   socket.on("join-room", ({ roomId, username }) => {
     if (!rooms[roomId]) {
       socket.emit("join-error", { message: "Room does not exist" });
@@ -73,25 +83,25 @@ io.on("connection", (socket) => {
     });
   });
 
+  // ── Player move ───────────────────────────────────────────────────────────
   socket.on("player-move", ({ roomId, x, y, direction, flipX }) => {
     if (rooms[roomId]?.players[socket.id]) {
       rooms[roomId].players[socket.id].x = x;
       rooms[roomId].players[socket.id].y = y;
     }
-    socket
-      .to(roomId)
-      .emit("player-moved", { id: socket.id, x, y, direction, flipX });
+    socket.to(roomId).emit("player-moved", { id: socket.id, x, y, direction, flipX });
   });
 
+  // ── Get room state ────────────────────────────────────────────────────────
   socket.on("get-room-state", ({ roomId }) => {
     if (!rooms[roomId]) return;
     socket.emit("room-state", { players: rooms[roomId].players });
   });
 
+  // ── Group chat ────────────────────────────────────────────────────────────
   socket.on("chat-message", ({ roomId, username, text }) => {
     if (!rooms[roomId]) return;
     if (!text?.trim()) return;
-
     socket.to(roomId).emit("chat-message", {
       username,
       text: text.trim().slice(0, 300),
@@ -99,57 +109,106 @@ io.on("connection", (socket) => {
     });
   });
 
-  // proximity check
-  // if distance < proximity range -> emit "player-nearby"
-  // distance = Math.sqrt((x2 - x1)^2 + (y2 - y1)^2)
+  // ── Nearby (private) chat ─────────────────────────────────────────────────
+  // Routed only to the locked partner. Dropped if no lock exists.
+  socket.on("nearby-message", ({ username, text }) => {
+    if (!text?.trim()) return;
+    const partnerId = lockedPair[socket.id];
+    if (!partnerId) return;
+    io.to(partnerId).emit("nearby-message", {
+      username,
+      text: text.trim().slice(0, 300),
+      ts: Date.now(),
+    });
+  });
 
-  const proximityState = {};
-  // { socketId: Set(playerIdsNearby) }
-
+  // ── Proximity check ───────────────────────────────────────────────────────
+  // Called by the MOVING player on every position change.
+  // Notifies BOTH the mover AND the stationary player so neither is blind.
+  //
+  // Lock semantics:
+  //   - When A enters B's range: both get locked to each other
+  //   - Third player C entering is ignored while the lock holds
+  //   - Lock breaks only when the locked partner moves OUT of range
   socket.on("check-proximity", () => {
-    const roomId = Object.keys(rooms).find(
-      (id) => rooms[id].players[socket.id],
-    );
+    const roomId = Object.keys(rooms).find((id) => rooms[id]?.players[socket.id]);
     if (!roomId) return;
 
-    const player = rooms[roomId].players[socket.id];
-    const proximityRange = 50;
+    const mover = rooms[roomId].players[socket.id];
+    const RANGE = 50;
 
-    if (!proximityState[socket.id]) {
-      proximityState[socket.id] = new Set();
-    }
+    if (!proximityState[socket.id]) proximityState[socket.id] = new Set();
 
     const currentNearby = new Set();
 
-    for (const [id, otherPlayer] of Object.entries(rooms[roomId].players)) {
-      if (id === socket.id) continue;
+    for (const [otherId, other] of Object.entries(rooms[roomId].players)) {
+      if (otherId === socket.id) continue;
 
-      const dx = otherPlayer.x - player.x;
-      const dy = otherPlayer.y - player.y;
+      const dx = other.x - mover.x;
+      const dy = other.y - mover.y;
 
-      if (dx * dx + dy * dy < proximityRange * proximityRange) {
-        currentNearby.add(id);
+      if (dx * dx + dy * dy < RANGE * RANGE) {
+        currentNearby.add(otherId);
 
-        // player ENTERED range
-        if (!proximityState[socket.id].has(id)) {
-          socket.emit("nearby-user", otherPlayer);
-          console.log(`Player entered proximity: ${otherPlayer.username}`);
+        // Just entered range
+        if (!proximityState[socket.id].has(otherId)) {
+          // Notify mover — only if unlocked or this IS their locked partner
+          const moverLock = lockedPair[socket.id];
+          if (!moverLock || moverLock === otherId) {
+            socket.emit("nearby-user", other);
+            lockedPair[socket.id] = otherId;
+          }
+
+          // Notify other player — only if unlocked or mover IS their locked partner
+          if (!proximityState[otherId]) proximityState[otherId] = new Set();
+          proximityState[otherId].add(socket.id);
+
+          const otherLock = lockedPair[otherId];
+          if (!otherLock || otherLock === socket.id) {
+            io.to(otherId).emit("nearby-user", mover);
+            lockedPair[otherId] = socket.id;
+          }
+
+          console.log(`${mover.username} <-> ${other.username} in proximity`);
         }
       }
     }
 
-    // detect players who LEFT range
-    for (const id of proximityState[socket.id]) {
-      if (!currentNearby.has(id)) {
-        socket.emit("nearby-left", { id });
-        console.log(`Player left proximity`);
+    // Players who left range
+    for (const otherId of proximityState[socket.id]) {
+      if (!currentNearby.has(otherId)) {
+        if (proximityState[otherId]) proximityState[otherId].delete(socket.id);
+
+        // Break mover's lock if this was their partner
+        if (lockedPair[socket.id] === otherId) {
+          socket.emit("nearby-left", { id: otherId });
+          delete lockedPair[socket.id];
+        }
+
+        // Break other's lock if mover was their partner
+        if (lockedPair[otherId] === socket.id) {
+          io.to(otherId).emit("nearby-left", { id: socket.id });
+          delete lockedPair[otherId];
+        }
       }
     }
 
     proximityState[socket.id] = currentNearby;
   });
 
+  // ── Disconnect ────────────────────────────────────────────────────────────
   socket.on("disconnect", () => {
+    // Clean up proximity
+    delete proximityState[socket.id];
+    for (const [sid, pid] of Object.entries(lockedPair)) {
+      if (pid === socket.id) {
+        io.to(sid).emit("nearby-left", { id: socket.id });
+        delete lockedPair[sid];
+      }
+    }
+    delete lockedPair[socket.id];
+
+    // Remove from room
     for (const roomId in rooms) {
       const room = rooms[roomId];
       if (room.players[socket.id]) {
@@ -159,8 +218,6 @@ io.on("connection", (socket) => {
         io.to(roomId).emit("player-left", { id: socket.id, username });
         if (Object.keys(room.players).length === 0) {
           delete rooms[roomId];
-          // delete proximity state - change
-          delete proximityState[socket.id];
           console.log(`Room ${roomId} deleted — empty`);
         }
         break;

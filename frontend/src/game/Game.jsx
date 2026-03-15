@@ -64,24 +64,31 @@ export default function Game() {
     game.events.once("ready", () => {
       game.registry.set("myId", socket.id);
       window.__vsGameData.myId = socket.id;
-      // Landing.jsx already emitted join-room and received player-joined before
-      // navigating here (so the joiner has mapId in state).
-      // This emit is a safety net only for direct URL access (/game/:roomId typed manually).
+      // Safety net for direct URL access — Landing already handles normal join flow
       if (!state?.charIndex) socket.emit("join-room", { roomId, username });
     });
 
-    socket.on("chat-message",   ({ username: from, text, ts }) =>
+    socket.on("chat-message", ({ username: from, text, ts }) =>
       setGroupMessages(prev => [...prev, { from, text, ts, self: false }]));
 
-    // nearby-user: backend sends the full player object {username, x, y, charIndex}
-    socket.on("nearby-user",    (player) => {
-      setNearbyUser(player.username);
+    // nearby-user: server sends full player object {username, x, y, charIndex}
+    // Clear history if it's a new person, auto-switch to nearby tab
+    socket.on("nearby-user", (player) => {
+      setNearbyUser(prev => {
+        if (prev !== player.username) setNearbyMessages([]);
+        return player.username;
+      });
       setVoiceActive(true);
+      setActiveTab("nearby");
     });
-    socket.on("nearby-left",    () => {
+
+    // nearby-left: partner walked away — reset and go back to group tab
+    socket.on("nearby-left", () => {
       setNearbyUser(null);
       setVoiceActive(false);
+      setActiveTab("group");
     });
+
     socket.on("nearby-message", ({ username: from, text, ts }) =>
       setNearbyMessages(prev => [...prev, { from, text, ts, self: false }]));
 
