@@ -3,41 +3,31 @@ import { useNavigate, useParams } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import MapDrawer from "../components/MapDrawer";
+import SpaceLoader from "../components/SpaceLoader";
 import {
   NameModal, Hero, HowItWorks, Features, Callout, FAQ, CTABanner, MobileToast,
 } from "./LandingHelper";
 
-// ── Cursor trail dot ──────────────────────────────────────────────────────────
+// ── Cursor trail ──────────────────────────────────────────────────────────────
 function CursorTrail() {
-  const dotsRef = useRef([]);
-  const mouseRef = useRef({ x: 0, y: 0 });
-  const frameRef = useRef(null);
+  const dotsRef      = useRef([]);
+  const mouseRef     = useRef({ x: 0, y: 0 });
+  const frameRef     = useRef(null);
   const containerRef = useRef(null);
 
   useEffect(() => {
-    // Skip on touch-only devices
     if (window.matchMedia("(pointer: coarse)").matches) return;
-
     const N = 10;
     const trail = [];
-
     const container = document.createElement("div");
     container.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:9999;overflow:hidden;";
     document.body.appendChild(container);
     containerRef.current = container;
 
     for (let i = 0; i < N; i++) {
-      const dot = document.createElement("div");
+      const dot  = document.createElement("div");
       const size = Math.max(3, 8 - i * 0.7);
-      dot.style.cssText = `
-        position:absolute; width:${size}px; height:${size}px;
-        border-radius:50%;
-        background:#E8632A;
-        opacity:0;
-        transform:translate(-50%,-50%);
-        transition:opacity 0.1s;
-        pointer-events:none;
-      `;
+      dot.style.cssText = `position:absolute;width:${size}px;height:${size}px;border-radius:50%;background:#E8632A;opacity:0;transform:translate(-50%,-50%);pointer-events:none;`;
       container.appendChild(dot);
       trail.push({ el: dot, x: 0, y: 0 });
     }
@@ -56,8 +46,8 @@ function CursorTrail() {
         };
       }
       trail.forEach((dot, i) => {
-        dot.el.style.left   = positions[i].x + "px";
-        dot.el.style.top    = positions[i].y + "px";
+        dot.el.style.left    = positions[i].x + "px";
+        dot.el.style.top     = positions[i].y + "px";
         dot.el.style.opacity = (1 - i / N) * 0.55;
       });
       frameRef.current = requestAnimationFrame(animate);
@@ -75,7 +65,7 @@ function CursorTrail() {
 }
 
 // ── Floating action dock ──────────────────────────────────────────────────────
-function FloatingDock({ onCTA }) {
+function FloatingDock({ onCTA, disabled }) {
   const [visible, setVisible] = useState(false);
   const [hCreate, setHCreate] = useState(false);
   const [hJoin,   setHJoin]   = useState(false);
@@ -88,26 +78,30 @@ function FloatingDock({ onCTA }) {
   }, []);
 
   const handleCTA = (intent) => {
+    if (disabled) return;
     if (window.innerWidth < 768) { setToast(true); return; }
     onCTA(intent);
   };
 
   return (
     <>
-      <div className="zh-floating-dock" style={{
-        position: "fixed", bottom: 32, left: "50%",
-        transform: `translateX(-50%) translateY(${visible ? 0 : 20}px)`,
-        opacity: visible ? 1 : 0,
-        transition: "opacity 0.4s cubic-bezier(0.16,1,0.3,1), transform 0.4s cubic-bezier(0.16,1,0.3,1)",
-        zIndex: 80,
-        display: "flex", alignItems: "center", gap: 8,
-        background: "#1A1814",
-        border: "1px solid rgba(232,226,218,0.15)",
-        borderRadius: 100,
-        padding: "8px 10px 8px 16px",
-        boxShadow: "0 8px 40px rgba(26,24,20,0.35), 0 2px 8px rgba(26,24,20,0.2)",
-      }}>
-        {/* Live pulse */}
+      <div
+        className="zh-floating-dock"
+        style={{
+          position: "fixed", bottom: 32, left: "50%",
+          transform: `translateX(-50%) translateY(${visible ? 0 : 20}px)`,
+          opacity: visible ? (disabled ? 0.45 : 1) : 0,
+          transition: "opacity 0.4s cubic-bezier(0.16,1,0.3,1), transform 0.4s cubic-bezier(0.16,1,0.3,1)",
+          zIndex: 80,
+          display: "flex", alignItems: "center", gap: 8,
+          background: "#1A1814",
+          border: "1px solid rgba(232,226,218,0.15)",
+          borderRadius: 100,
+          padding: "8px 10px 8px 16px",
+          boxShadow: "0 8px 40px rgba(26,24,20,0.35), 0 2px 8px rgba(26,24,20,0.2)",
+          pointerEvents: disabled ? "none" : "auto",
+        }}
+      >
         <span style={{ position: "relative", display: "inline-flex", width: 7, height: 7, marginRight: 4 }}>
           <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#E8632A", animation: "dock-ping 2s ease-in-out infinite", opacity: 0.6 }} />
           <span style={{ position: "relative", width: 7, height: 7, borderRadius: "50%", background: "#E8632A", display: "block" }} />
@@ -115,43 +109,41 @@ function FloatingDock({ onCTA }) {
         <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "rgba(245,240,232,0.55)", letterSpacing: "0.06em", marginRight: 8, whiteSpace: "nowrap" }}>
           Jump in now
         </span>
-
         <button
           onClick={() => handleCTA("create")}
           onMouseEnter={() => setHCreate(true)}
           onMouseLeave={() => setHCreate(false)}
+          disabled={disabled}
           style={{
             fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 13,
             color: "#16120E",
             background: hCreate ? "#D4571F" : "#E8632A",
             border: "none", borderRadius: 100,
-            padding: "9px 18px", cursor: "pointer",
+            padding: "9px 18px", cursor: disabled ? "not-allowed" : "pointer",
             transition: "all 0.18s ease",
-            transform: hCreate ? "scale(1.03)" : "scale(1)",
+            transform: hCreate && !disabled ? "scale(1.03)" : "scale(1)",
           }}
         >
           + Create
         </button>
-
         <button
           onClick={() => handleCTA("join")}
           onMouseEnter={() => setHJoin(true)}
           onMouseLeave={() => setHJoin(false)}
+          disabled={disabled}
           style={{
             fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 13,
             color: hJoin ? "#F5F0E8" : "rgba(245,240,232,0.6)",
             background: hJoin ? "rgba(245,240,232,0.1)" : "transparent",
             border: "1px solid rgba(232,226,218,0.15)",
             borderRadius: 100,
-            padding: "9px 18px", cursor: "pointer",
+            padding: "9px 18px", cursor: disabled ? "not-allowed" : "pointer",
             transition: "all 0.18s ease",
           }}
         >
           ↗ Join
         </button>
       </div>
-
-      {/* Mobile toast — shown instead of modal on narrow screens */}
       <MobileToast visible={toast} onHide={() => setToast(false)} />
     </>
   );
@@ -166,8 +158,12 @@ export default function Landing() {
   const [modal,           setModal]           = useState(null);
   const [drawerOpen,      setDrawerOpen]      = useState(false);
   const [pendingUsername, setPendingUsername] = useState("");
+  const [isLoading,       setIsLoading]       = useState(false);
 
-  // ── Lenis smooth scroll ────────────────────────────────────────────────────
+  // Store last attempted action so Retry can replay it
+  const lastActionRef = useRef(null); // { type: "create" | "join", payload }
+
+  // ── Lenis smooth scroll ──────────────────────────────────────────────────
   useEffect(() => {
     import("lenis").then(({ default: Lenis }) => {
       const lenis = new Lenis({
@@ -177,10 +173,8 @@ export default function Landing() {
         smoothWheel: true,
       });
       lenisRef.current = lenis;
-
       function raf(time) { lenis.raf(time); requestAnimationFrame(raf); }
       requestAnimationFrame(raf);
-
       document.querySelectorAll('a[href^="#"]').forEach(a => {
         a.addEventListener("click", (e) => {
           e.preventDefault();
@@ -189,7 +183,6 @@ export default function Landing() {
         });
       });
     }).catch(() => {});
-
     return () => { lenisRef.current?.destroy(); };
   }, []);
 
@@ -197,45 +190,68 @@ export default function Landing() {
     if (urlRoomId) setModal({ intent: "join", prefillRoomId: urlRoomId });
   }, [urlRoomId]);
 
-  const handleCTA = (intent) => setModal({ intent, prefillRoomId: "" });
+  const handleCTA = (intent) => {
+    if (isLoading) return;
+    setModal({ intent, prefillRoomId: "" });
+  };
 
   const handleCreateSuccess = (username) => {
-    setPendingUsername(username); setModal(null); setDrawerOpen(true);
+    setPendingUsername(username);
+    setModal(null);
+    setDrawerOpen(true);
+  };
+
+  const emitCreate = (username, mapId) => {
+    lastActionRef.current = { type: "create", payload: { username, mapId } };
+    import("../socket/socket").then(({ default: socket }) => {
+      socket.off("room-created");
+      socket.once("room-created", ({ roomId, charIndex }) => {
+        setIsLoading(false);
+        navigate(`/game/${roomId}`, { state: { username, mapId, roomId, charIndex } });
+      });
+      const send = () => socket.emit("create-room", { username, mapId });
+      if (socket.connected) { send(); } else { socket.once("connect", send); socket.connect(); }
+    });
   };
 
   const handleMapSelect = (mapId) => {
     setDrawerOpen(false);
+    setIsLoading(true);
+    emitCreate(pendingUsername, mapId);
+  };
+
+  const emitJoin = (username, roomId) => {
+    lastActionRef.current = { type: "join", payload: { username, roomId } };
     import("../socket/socket").then(({ default: socket }) => {
-      if (socket.disconnected) socket.connect();
-      socket.once("room-created", ({ roomId, charIndex }) => {
-        navigate(`/game/${roomId}`, { state: { username: pendingUsername, mapId, roomId, charIndex } });
+      socket.off("join-success");
+      socket.off("join-error");
+      socket.once("join-success", ({ charIndex, mapId }) => {
+        setIsLoading(false);
+        navigate(`/game/${roomId}`, { state: { username, roomId, charIndex, mapId } });
       });
-      socket.emit("create-room", { username: pendingUsername, mapId });
+      socket.once("join-error", ({ message }) => {
+        setIsLoading(false);
+        setModal({ intent: "join", prefillRoomId: roomId, error: message });
+      });
+      const send = () => socket.emit("join-room", { roomId, username });
+      if (socket.connected) { send(); } else { socket.once("connect", send); socket.connect(); }
     });
   };
 
   const handleJoinSuccess = ({ username, roomId }) => {
     setModal(null);
-    import("../socket/socket").then(({ default: socket }) => {
-      if (socket.disconnected) socket.connect();
+    setIsLoading(true);
+    emitJoin(username, roomId);
+  };
 
-      socket.once("join-success", ({ charIndex, mapId }) => {
-        navigate(`/game/${roomId}`, {
-          state: { username, roomId, charIndex, mapId },
-        });
-      });
-
-      socket.once("join-error", ({ message }) => {
-        setModal({ intent: "join", prefillRoomId: roomId, error: message });
-      });
-
-      const emitJoin = () => socket.emit("join-room", { roomId, username });
-      if (socket.connected) {
-        emitJoin();
-      } else {
-        socket.once("connect", emitJoin);
-      }
-    });
+  const handleRetry = () => {
+    const last = lastActionRef.current;
+    if (!last) return;
+    if (last.type === "create") {
+      emitCreate(last.payload.username, last.payload.mapId);
+    } else if (last.type === "join") {
+      emitJoin(last.payload.username, last.payload.roomId);
+    }
   };
 
   return (
@@ -273,14 +289,6 @@ export default function Landing() {
           0%, 100% { transform: translateY(0px) translateX(0px); }
           50%       { transform: translateY(-8px) translateX(10px); }
         }
-        @keyframes count-up-shimmer {
-          from { background-position: -200% center; }
-          to   { background-position: 200% center; }
-        }
-        @keyframes step-line-grow {
-          from { height: 0; }
-          to   { height: 100%; }
-        }
         @keyframes scanline {
           0%   { transform: translateY(-100%); }
           100% { transform: translateY(100vh); }
@@ -293,16 +301,30 @@ export default function Landing() {
         ::-webkit-scrollbar { width: 5px; }
         ::-webkit-scrollbar-track { background: #FAF7F2; }
         ::-webkit-scrollbar-thumb { background: #D4C9B8; border-radius: 10px; }
-        input::placeholder  { color: #C4B8A8 !important; }
+        input::placeholder   { color: #C4B8A8 !important; }
         textarea::placeholder { color: #C4B8A8 !important; }
 
         .lenis.lenis-smooth { scroll-behavior: auto !important; }
         .lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
+
+        @media (max-width: 767px) {
+          .zh-floating-dock { display: none !important; }
+        }
       `}</style>
 
       <CursorTrail />
 
-      <div style={{ background: "#FAF7F2", color: "#1A1814", overflowX: "hidden" }}>
+      <div
+        style={{
+          background: "#FAF7F2",
+          color: "#1A1814",
+          overflowX: "hidden",
+          transition: "filter 0.4s ease, opacity 0.4s ease",
+          filter:        isLoading ? "blur(2px) saturate(0.7)" : "none",
+          opacity:       isLoading ? 0.6 : 1,
+          pointerEvents: isLoading ? "none" : "auto",
+        }}
+      >
         <Navbar />
         <main>
           <Hero       onCTA={handleCTA} />
@@ -315,7 +337,7 @@ export default function Landing() {
         <Footer />
       </div>
 
-      <FloatingDock onCTA={handleCTA} />
+      <FloatingDock onCTA={handleCTA} disabled={isLoading} />
 
       {modal && (
         <NameModal
@@ -327,7 +349,18 @@ export default function Landing() {
           onJoinSuccess={handleJoinSuccess}
         />
       )}
-      <MapDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onSelect={handleMapSelect} />
+
+      <MapDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onSelect={handleMapSelect}
+      />
+
+      <SpaceLoader
+        visible={isLoading}
+        onExit={() => setIsLoading(false)}
+        onRetry={handleRetry}
+      />
     </>
   );
 }
