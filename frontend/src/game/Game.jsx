@@ -34,19 +34,104 @@ export default function Game() {
   const [deafened,       setDeafened]       = useState(false);
   const [voiceActive,    setVoiceActive]    = useState(false);
   const [sidebarOpen,    setSidebarOpen]    = useState(true);
-  const [nearbyPlayer,   setNearbyPlayer]   = useState(null);
+  const [nearbyPlayer,     setNearbyPlayer]     = useState(null);
+  const nearbyPlayerRef       = useRef(null);
+  const activeInteractionRef  = useRef(false);
+  const disconnectingUserRef  = useRef(null);  // set by interaction-ended for nearby-left toast
+  const [waitingResponse,  setWaitingResponse]  = useState(false);
+  const [incomingRequest,  setIncomingRequest]  = useState(null);
+  const [connectedToast,   setConnectedToast]   = useState(null); // username string, auto-clears
+  const [activeInteraction, setActiveInteraction] = useState(false);
+  const [disconnectedToast, setDisconnectedToast] = useState(null);
 
-  // ── E-key interaction request ─────────────────────────────────────────────
+  // ── E-key: send interaction request ──────────────────────────────────────
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== "e" && e.key !== "E") return;
       if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
-      if (!nearbyPlayer) return;
+      if (!nearbyPlayer || waitingResponse || incomingRequest || activeInteraction) return;
+      console.log("[E] sending interaction-request to", nearbyPlayer.playerId);
       socket.emit("interaction-request", { toPlayerId: nearbyPlayer.playerId });
+      // Show waiting UI immediately — also confirmed by interaction-request-sent
+      setWaitingResponse(true);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [nearbyPlayer]);
+  }, [nearbyPlayer, waitingResponse, incomingRequest, activeInteraction]);
+
+  // ── interaction-request-received ─────────────────────────────────────────
+  useEffect(() => {
+    const handler = (data) => {
+      console.log("[socket] interaction-request-received:", data);
+      // Always overwrite — stale guard was blocking second attempt
+      setIncomingRequest(data);
+    };
+    socket.on("interaction-request-received", handler);
+    return () => socket.off("interaction-request-received", handler);
+  }, []);
+
+  // ── interaction-request-sent — confirm waiting UI ─────────────────────────
+  useEffect(() => {
+    const handler = () => {
+      console.log("[socket] interaction-request-sent confirmed");
+      setWaitingResponse(true);
+    };
+    socket.on("interaction-request-sent", handler);
+    return () => socket.off("interaction-request-sent", handler);
+  }, []);
+
+  // ── interaction-started — open nearby chat, show toast ───────────────────
+  useEffect(() => {
+    const handler = ({ playerA, playerB }) => {
+      setWaitingResponse(false);
+      setIncomingRequest(null);  // clear any stale incoming request on both sides
+
+      const iAmPlayerA = playerA === socket.id;
+      const iAmPlayerB = playerB === socket.id;
+      if (!iAmPlayerA && !iAmPlayerB) return;
+
+      const otherUsername = nearbyPlayerRef.current?.username ?? "Player";
+
+      setActiveInteraction(true);
+      activeInteractionRef.current = true;
+      setNearbyUser(otherUsername);
+      setVoiceActive(true);
+      setActiveTab("nearby");
+      setConnectedToast(otherUsername);
+      setTimeout(() => setConnectedToast(null), 2200);
+    };
+    socket.on("interaction-started", handler);
+    return () => socket.off("interaction-started", handler);
+  }, []);
+
+  // ── interaction-declined — clear waiting UI ───────────────────────────────
+  useEffect(() => {
+    const handler = () => setWaitingResponse(false);
+    socket.on("interaction-declined", handler);
+    return () => socket.off("interaction-declined", handler);
+  }, []);
+
+  // ── interaction-ended — close nearby chat, return to group ────────────────
+  useEffect(() => {
+    const handler = () => {
+      const prevUser = nearbyPlayerRef.current?.username ?? null;
+      disconnectingUserRef.current = prevUser; // save for nearby-left toast
+      setWaitingResponse(false);
+      setIncomingRequest(null);
+      activeInteractionRef.current = false;
+      setActiveInteraction(false);
+      setNearbyUser(null);
+      setVoiceActive(false);
+      setActiveTab("group");
+      setNearbyMessages([]);
+      if (prevUser) {
+        setDisconnectedToast(prevUser);
+        setTimeout(() => setDisconnectedToast(null), 2200);
+      }
+    };
+    socket.on("interaction-ended", handler);
+    return () => socket.off("interaction-ended", handler);
+  }, []);
 
   // ── Phaser bootstrap ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -94,20 +179,34 @@ export default function Game() {
       setGroupMessages(prev => [...prev, { from, text, ts, self: false }]));
 
     socket.on("nearby-user", (player) => {
-      setNearbyUser(prev => {
-        if (prev !== player.username) setNearbyMessages([]);
-        return player.username;
-      });
-      setVoiceActive(true);
-      setActiveTab("nearby");
-      setNearbyPlayer({ playerId: player.socketId, username: player.username });
+      // Only update the E-prompt target — chat opens only after interaction-accepted
+      const np = { playerId: player.socketId, username: player.username };
+      nearbyPlayerRef.current = np;
+      setNearbyPlayer(np);
     });
 
     socket.on("nearby-left", () => {
-      setNearbyUser(null);
-      setVoiceActive(false);
-      setActiveTab("group");
+      const wasInteracting = activeInteractionRef.current;
+      // Use disconnectingUserRef if interaction-ended already cleared nearbyPlayerRef
+      const prevUser = nearbyPlayerRef.current?.username ?? disconnectingUserRef.current ?? null;
+      disconnectingUserRef.current = null;
+      nearbyPlayerRef.current = null;
       setNearbyPlayer(null);
+      setWaitingResponse(false);
+      setIncomingRequest(null);
+
+      if (wasInteracting) {
+        activeInteractionRef.current = false;
+        setActiveInteraction(false);
+        setNearbyUser(null);
+        setVoiceActive(false);
+        setActiveTab("group");
+        setNearbyMessages([]);
+        if (prevUser) {
+          setDisconnectedToast(prevUser);
+          setTimeout(() => setDisconnectedToast(null), 2200);
+        }
+      }
     });
 
     socket.on("nearby-message", ({ username: from, text, ts }) =>
@@ -118,7 +217,6 @@ export default function Game() {
       socket.off("nearby-user");
       socket.off("nearby-left");
       socket.off("nearby-message");
-      socket.offAny();
       socket.off("player-joined");
       socket.off("player-left");
       socket.off("player-moved");
@@ -148,9 +246,9 @@ export default function Game() {
     });
   };
 
-  const leaveRoom  = () => { socket.disconnect(); navigate("/"); };
+  const leaveRoom = () => { socket.disconnect(); navigate("/"); };
 
-  const sendGroup  = () => {
+  const sendGroup = () => {
     const text = groupDraft.trim();
     if (!text) return;
     socket.emit("chat-message", { roomId, username, text });
@@ -166,6 +264,24 @@ export default function Game() {
     setNearbyMessages(prev => [...prev, { from: username, text, ts: Date.now(), self: true }]);
     setNearbyDraft("");
     nearbyInputRef.current?.focus();
+  };
+
+  const handleAccept = () => {
+    if (!incomingRequest) return;
+    socket.emit("interaction-accepted", {
+      fromPlayerId: incomingRequest.fromPlayerId,
+      toPlayerId:   socket.id,
+    });
+    setIncomingRequest(null);
+  };
+
+  const handleDecline = () => {
+    if (!incomingRequest) return;
+    socket.emit("interaction-declined", {
+      fromPlayerId: incomingRequest.fromPlayerId,
+      toPlayerId:   socket.id,
+    });
+    setIncomingRequest(null);
   };
 
   const onGroupKey  = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendGroup();  } };
@@ -187,6 +303,9 @@ export default function Game() {
           from { opacity: 0; transform: translateX(-50%) translateY(6px); }
           to   { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
+        @keyframes ping {
+          75%, 100% { transform: scale(2); opacity: 0; }
+        }
       `}</style>
 
       <div
@@ -202,8 +321,97 @@ export default function Game() {
         {/* ── Game Canvas ───────────────────────────────────────────────── */}
         <div ref={gameRef} className="overflow-hidden bg-[#16120E] relative">
 
-          {/* ── E-to-talk prompt ──────────────────────────────────────── */}
-          {nearbyPlayer && (
+          {/* ── Connected toast ───────────────────────────────────────── */}
+          {connectedToast && (
+            <div
+              className="absolute top-4 left-1/2 z-50 pointer-events-none"
+              style={{ transform: "translateX(-50%)", animation: "fadeUp 0.2s ease both" }}
+            >
+              <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-emerald-500/25 bg-[#0a1f14]/90 backdrop-blur-md shadow-2xl whitespace-nowrap">
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="absolute inset-0 rounded-full bg-emerald-400 opacity-60" style={{ animation: "ping 1.2s cubic-bezier(0,0,0.2,1) infinite" }} />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                </span>
+                <span className="font-mono text-[11px] tracking-[0.04em] text-[#9C9188]">
+                  Connected to{" "}
+                  <span className="text-emerald-300 font-semibold">{connectedToast}</span>
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* ── Disconnected toast ────────────────────────────────────── */}
+          {disconnectedToast && (
+            <div
+              className="absolute top-4 left-1/2 z-50 pointer-events-none"
+              style={{ transform: "translateX(-50%)", animation: "fadeUp 0.2s ease both" }}
+            >
+              <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-red-500/20 bg-[#1f0a0a]/90 backdrop-blur-md shadow-2xl whitespace-nowrap">
+                <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />
+                <span className="font-mono text-[11px] tracking-[0.04em] text-[#9C9188]">
+                  Disconnected from{" "}
+                  <span className="text-red-300 font-semibold">{disconnectedToast}</span>
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* ── Sender: waiting for response ──────────────────────────── */}
+          {waitingResponse && (
+            <div
+              className="absolute bottom-6 left-1/2 z-40 pointer-events-none"
+              style={{ transform: "translateX(-50%)" }}
+            >
+              <div className="flex items-center gap-2.5 px-4 py-2 rounded-xl border border-[rgba(139,92,246,0.25)] bg-[#16120E]/90 backdrop-blur-md shadow-2xl whitespace-nowrap">
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="absolute inset-0 rounded-full bg-violet-400 opacity-60" style={{ animation: "ping 1.2s cubic-bezier(0,0,0.2,1) infinite" }} />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-violet-400" />
+                </span>
+                <span className="font-mono text-[11px] tracking-[0.04em] text-[#9C9188]">
+                  Invitation sent, waiting for response…
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* ── Receiver: incoming request popup ──────────────────────── */}
+          {incomingRequest && (
+            <div
+              className="absolute bottom-6 left-1/2 z-50"
+              style={{ transform: "translateX(-50%)", animation: "fadeUp 0.2s ease both" }}
+            >
+              <div className="flex flex-col gap-3 px-5 py-4 rounded-2xl border border-[rgba(232,226,218,0.14)] bg-[#1E1A15]/95 backdrop-blur-md shadow-2xl whitespace-nowrap">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-[#E8632A]/15 border border-[#E8632A]/30 flex items-center justify-center font-mono text-[12px] font-semibold text-[#E8632A] shrink-0">
+                    {incomingRequest.username?.[0]?.toUpperCase()}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-mono text-[12px] font-semibold text-[#FAF7F2]">{incomingRequest.username}</span>
+                    <span className="font-mono text-[9px] tracking-[0.1em] uppercase text-[#5C5550]">wants to talk</span>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleAccept}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/25 font-mono text-[10px] font-medium tracking-[0.08em] uppercase text-emerald-400 cursor-pointer transition-all duration-150"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Accept
+                  </button>
+                  <button
+                    onClick={handleDecline}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[rgba(232,226,218,0.05)] hover:bg-[rgba(232,226,218,0.1)] border border-[rgba(232,226,218,0.1)] font-mono text-[10px] font-medium tracking-[0.08em] uppercase text-[#5C5550] hover:text-[#9C9188] cursor-pointer transition-all duration-150"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    Decline
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── E-to-talk prompt (hidden while waiting, popup open, or interacting) */}
+          {nearbyPlayer && !waitingResponse && !incomingRequest && !activeInteraction && (
             <div
               className="absolute bottom-6 left-1/2 z-40 pointer-events-none"
               style={{ animation: "fadeUp 0.2s ease both", transform: "translateX(-50%)" }}
@@ -247,13 +455,11 @@ export default function Game() {
             transition:    "width 0.32s cubic-bezier(0.4,0,0.2,1), opacity 0.18s ease",
           }}
         >
-          {/* ── Header ── */}
+          {/* Header */}
           <div className="flex items-center gap-2 px-4 pt-3.5 pb-3 shrink-0 border-b border-[rgba(232,226,218,0.08)]">
             <div className="flex items-center gap-2 min-w-0">
               <span className="font-mono text-[9px] font-medium tracking-[0.16em] uppercase text-[#5C5550] shrink-0">Room</span>
-              <span className="font-mono text-[11px] text-[#E8632A] bg-[#E8632A]/15 border border-[#E8632A]/30 rounded-md px-2 py-0.5 max-w-[100px] truncate">
-                {roomId}
-              </span>
+              <span className="font-mono text-[11px] text-[#E8632A] bg-[#E8632A]/15 border border-[#E8632A]/30 rounded-md px-2 py-0.5 max-w-[100px] truncate">{roomId}</span>
             </div>
             {isAdmin && (
               <button
@@ -273,7 +479,7 @@ export default function Game() {
             )}
           </div>
 
-          {/* ── Tabs ── */}
+          {/* Tabs */}
           <div className="flex items-end px-3 gap-0.5 shrink-0 border-b border-[rgba(232,226,218,0.08)]">
             <TabBtn
               active={activeTab === "group"}
@@ -291,28 +497,17 @@ export default function Game() {
             />
           </div>
 
-          {/* ── Messages ── */}
+          {/* Messages */}
           <div className="flex-1 overflow-hidden relative">
             <div
               ref={groupMsgRef}
-              className={[
-                "game-scroll absolute inset-0 flex flex-col gap-1 overflow-y-auto p-3",
-                "transition-opacity duration-150",
-                activeTab === "group" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none",
-              ].join(" ")}
+              className={["game-scroll absolute inset-0 flex flex-col gap-1 overflow-y-auto p-3 transition-opacity duration-150", activeTab === "group" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"].join(" ")}
             >
-              {groupMessages.length === 0
-                ? <EmptyState text="No messages yet — say hi 👋" />
-                : groupMessages.map((m, i) => <Message key={i} m={m} />)
-              }
+              {groupMessages.length === 0 ? <EmptyState text="No messages yet — say hi 👋" /> : groupMessages.map((m, i) => <Message key={i} m={m} />)}
             </div>
             <div
               ref={nearbyMsgRef}
-              className={[
-                "game-scroll absolute inset-0 flex flex-col gap-1 overflow-y-auto p-3",
-                "transition-opacity duration-150",
-                activeTab === "nearby" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none",
-              ].join(" ")}
+              className={["game-scroll absolute inset-0 flex flex-col gap-1 overflow-y-auto p-3 transition-opacity duration-150", activeTab === "nearby" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"].join(" ")}
             >
               {!nearbyUser
                 ? <EmptyState text="Walk near another player to start a private chat." icon="👤" />
@@ -323,27 +518,12 @@ export default function Game() {
             </div>
           </div>
 
-          {/* ── Input ── */}
+          {/* Input */}
           <div className="p-3 border-t border-[rgba(232,226,218,0.08)] shrink-0">
             {activeTab === "group" ? (
-              <ChatInput
-                ref={groupInputRef}
-                value={groupDraft}
-                onChange={e => setGroupDraft(e.target.value)}
-                onKeyDown={onGroupKey}
-                onSend={sendGroup}
-                placeholder="Message everyone…"
-              />
+              <ChatInput ref={groupInputRef} value={groupDraft} onChange={e => setGroupDraft(e.target.value)} onKeyDown={onGroupKey} onSend={sendGroup} placeholder="Message everyone…" />
             ) : (
-              <ChatInput
-                ref={nearbyInputRef}
-                value={nearbyDraft}
-                onChange={e => setNearbyDraft(e.target.value)}
-                onKeyDown={onNearbyKey}
-                onSend={sendNearby}
-                placeholder={nearbyUser ? `Message ${nearbyUser}…` : "No one nearby…"}
-                disabled={!nearbyUser}
-              />
+              <ChatInput ref={nearbyInputRef} value={nearbyDraft} onChange={e => setNearbyDraft(e.target.value)} onKeyDown={onNearbyKey} onSend={sendNearby} placeholder={nearbyUser ? `Message ${nearbyUser}…` : "No one nearby…"} disabled={!nearbyUser} />
             )}
           </div>
         </aside>
@@ -353,21 +533,10 @@ export default function Game() {
           className="flex items-center px-4 gap-3 bg-[#16120E] border-t border-[rgba(232,226,218,0.08)]"
           style={{ gridColumn: "1 / -1" }}
         >
-          {/* Voice status */}
           <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className={[
-              "flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all duration-300",
-              voiceActive
-                ? "bg-emerald-400/8 border-emerald-400/20 text-emerald-400"
-                : "bg-[#252018] border-[rgba(232,226,218,0.08)] text-[#E8632A]",
-            ].join(" ")}>
+            <div className={["flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all duration-300", voiceActive ? "bg-emerald-400/8 border-emerald-400/20 text-emerald-400" : "bg-[#252018] border-[rgba(232,226,218,0.08)] text-[#E8632A]"].join(" ")}>
               <span className="relative flex h-[7px] w-[7px] shrink-0">
-                {voiceActive && (
-                  <span
-                    className="absolute inset-0 rounded-full bg-emerald-400 opacity-60"
-                    style={{ animation: "voice-ping 1.5s ease-in-out infinite" }}
-                  />
-                )}
+                {voiceActive && <span className="absolute inset-0 rounded-full bg-emerald-400 opacity-60" style={{ animation: "voice-ping 1.5s ease-in-out infinite" }} />}
                 <span className={`relative inline-flex h-[7px] w-[7px] rounded-full ${voiceActive ? "bg-emerald-400" : "bg-[#E8632A]"}`} />
               </span>
               <span className="font-mono text-[10px] font-medium tracking-[0.08em] uppercase whitespace-nowrap">
@@ -379,23 +548,15 @@ export default function Game() {
             </span>
           </div>
 
-          {/* Mic + headset */}
           <div className="flex items-center gap-1 bg-[#252018] border border-[rgba(232,226,218,0.08)] rounded-[10px] px-1.5 py-1">
-            <ControlBtn active={micMuted} onClick={() => setMicMuted(p => !p)} title={micMuted ? "Unmute mic" : "Mute mic"} danger={micMuted}>
-              <MicIcon muted={micMuted} />
-            </ControlBtn>
+            <ControlBtn active={micMuted} onClick={() => setMicMuted(p => !p)} title={micMuted ? "Unmute mic" : "Mute mic"} danger={micMuted}><MicIcon muted={micMuted} /></ControlBtn>
             <div className="w-px h-[18px] bg-[rgba(232,226,218,0.08)]" />
-            <ControlBtn active={deafened} onClick={() => setDeafened(p => !p)} title={deafened ? "Undeafen" : "Deafen"} danger={deafened}>
-              <HeadsetIcon muted={deafened} />
-            </ControlBtn>
+            <ControlBtn active={deafened} onClick={() => setDeafened(p => !p)} title={deafened ? "Undeafen" : "Deafen"} danger={deafened}><HeadsetIcon muted={deafened} /></ControlBtn>
           </div>
 
-          {/* User chip + leave */}
           <div className="flex items-center gap-2.5 flex-1 justify-end min-w-0">
             <div className="flex items-center gap-2 bg-[#252018] border border-[rgba(232,226,218,0.08)] rounded-full pl-1 pr-3 py-1">
-              <div className="w-[26px] h-[26px] rounded-full bg-[#E8632A]/15 border border-[#E8632A]/30 flex items-center justify-center font-mono text-[11px] font-medium text-[#E8632A] shrink-0">
-                {username[0]?.toUpperCase()}
-              </div>
+              <div className="w-[26px] h-[26px] rounded-full bg-[#E8632A]/15 border border-[#E8632A]/30 flex items-center justify-center font-mono text-[11px] font-medium text-[#E8632A] shrink-0">{username[0]?.toUpperCase()}</div>
               <span className="font-body text-[12px] font-medium text-[#9C9188] max-w-[100px] truncate">{username}</span>
             </div>
             <button

@@ -15,6 +15,132 @@ const TIMED_MESSAGES = [
   { after: 12, text: "Server might be sleeping. Please wait or try again in ~30 seconds", urgent: true  },
 ];
 
+// ── Cold-start toast ──────────────────────────────────────────────────────────
+// Keyframes animate only opacity/translateY/scale so -translate-x-1/2 on the
+// wrapper handles horizontal centering permanently without being overridden.
+// Two lines for shimmer's background-clip:text — no Tailwind equivalent.
+const TOAST_KF = `
+  @keyframes csb-in  { from{opacity:0;transform:translateY(-14px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} }
+  @keyframes csb-out { from{opacity:1;transform:translateY(0) scale(1)} to{opacity:0;transform:translateY(-10px) scale(0.98)} }
+  @keyframes csb-shimmer { 0%{background-position:200% center} 100%{background-position:-200% center} }
+  @keyframes csb-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(1.7)} }
+  .csb-in      { animation: csb-in  0.44s cubic-bezier(0.16,1,0.3,1) both }
+  .csb-out     { animation: csb-out 0.28s ease both }
+  .csb-shimmer { background:linear-gradient(90deg,rgba(245,240,232,.5) 0%,rgba(245,240,232,.95) 45%,rgba(245,240,232,.5) 90%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:csb-shimmer 4s linear infinite }
+  .csb-dot     { animation: csb-dot 2.2s ease-in-out infinite }
+`;
+
+function ColdStartBanner({ visible }) {
+  const [show,      setShow]      = useState(false);
+  const [expanded,  setExpanded]  = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setDismissed(false);
+      setExpanded(false);
+      const t = setTimeout(() => setShow(true), 650);
+      return () => clearTimeout(t);
+    } else {
+      setShow(false);
+    }
+  }, [visible]);
+
+  const active = show && !dismissed;
+
+  return (
+    <>
+      <style>{TOAST_KF}</style>
+
+      {/* -translate-x-1/2 stays on the element, keyframes never touch X */}
+      <div
+        className={`${active ? "csb-in" : "csb-out"} fixed top-5 left-1/2 -translate-x-1/2 z-[400] w-[min(480px,calc(100vw-32px))] ${active ? "pointer-events-auto" : "pointer-events-none"}`}
+      >
+        {/* Subtle outer glow */}
+        <div className="absolute -inset-px rounded-[22px] pointer-events-none shadow-[0_0_0_1px_rgba(232,99,42,0.15),0_0_32px_rgba(232,99,42,0.08)]" />
+
+        {/* Card */}
+        <div className="relative rounded-[21px] overflow-hidden bg-[linear-gradient(150deg,#222018_0%,#1A1814_50%,#1E1C17_100%)] border border-white/[0.09] shadow-[0_0_0_1px_rgba(255,255,255,0.03)_inset,0_20px_56px_rgba(26,24,20,0.55),0_6px_18px_rgba(26,24,20,0.38)]">
+
+          {/* Top accent line */}
+          <div className="h-px bg-[linear-gradient(90deg,transparent_0%,rgba(232,99,42,0.4)_20%,rgba(240,168,122,0.95)_50%,rgba(232,99,42,0.4)_80%,transparent_100%)]" />
+
+          {/* ── Main row ── */}
+          <div className="flex items-center gap-4 px-5 py-4">
+
+            {/* Icon */}
+            <div className="w-11 h-11 rounded-2xl shrink-0 flex items-center justify-center text-xl bg-[linear-gradient(135deg,rgba(232,99,42,0.18)_0%,rgba(232,99,42,0.07)_100%)] border border-[rgba(232,99,42,0.2)]">
+              🌙
+            </div>
+
+            {/* Text block */}
+            <div className="flex-1 min-w-0 py-0.5">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="csb-dot inline-block w-1.5 h-1.5 rounded-full bg-[#E8632A] shrink-0" />
+                <span className="font-mono text-[9px] font-medium tracking-[0.18em] uppercase text-[#E8632A]/80">
+                  Heads up
+                </span>
+              </div>
+              <span className="csb-shimmer block text-[14px] font-semibold tracking-[-0.02em] leading-snug">
+                First attempt may take ~30 seconds
+              </span>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Why toggle */}
+              <button
+                onClick={() => setExpanded(e => !e)}
+                className={`font-mono text-[9px] font-medium tracking-[0.13em] uppercase rounded-lg px-3 py-2 border cursor-pointer transition-all duration-150 whitespace-nowrap
+                  ${expanded
+                    ? "text-[#F0A87A] bg-[rgba(232,99,42,0.14)] border-[rgba(232,99,42,0.3)]"
+                    : "text-[#E8632A] bg-[rgba(232,99,42,0.07)] border-[rgba(232,99,42,0.16)] hover:bg-[rgba(232,99,42,0.14)] hover:border-[rgba(232,99,42,0.3)]"
+                  }`}
+              >
+                {expanded ? "close ↑" : "why? ↓"}
+              </button>
+
+              {/* Dismiss */}
+              <button
+                onClick={() => setDismissed(true)}
+                className="w-8 h-8 rounded-xl border border-white/[0.08] bg-transparent hover:bg-white/[0.06] hover:border-white/[0.16] flex items-center justify-center cursor-pointer text-xs leading-none text-white/25 hover:text-white/50 transition-all duration-150"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          {/* ── Expandable detail ── */}
+          <div
+            className="overflow-hidden transition-[max-height] duration-[380ms] ease-[cubic-bezier(0.16,1,0.3,1)]"
+            style={{ maxHeight: expanded ? 160 : 0 }}
+          >
+            {/* Divider */}
+            <div className="mx-5 h-px bg-white/[0.06]" />
+
+            <div className="px-5 py-4">
+              {/* Info card */}
+              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] px-4 py-3.5">
+                <p className="m-0 text-[13px] leading-[1.75] text-white/50">
+                  This app runs on Render's{" "}
+                  <span className="text-white/75 font-semibold">free tier</span>
+                  {" "}— the server sleeps after{" "}
+                  <span className="text-white/75 font-semibold">15 min</span>
+                  {" "}of inactivity. The first connection wakes it up, which usually takes{" "}
+                  <span className="text-[#E8632A] font-semibold">20–30 seconds</span>
+                  . Just hang tight, or hit Retry if it times out.
+                </p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Main loader (original — untouched) ────────────────────────────────────────
 export default function SpaceLoader({ visible, onExit, onRetry }) {
   const canvasRef     = useRef(null);
   const rafRef        = useRef(null);
@@ -49,8 +175,6 @@ export default function SpaceLoader({ visible, onExit, onRetry }) {
     }
   }, [visible]);
 
-  // retryCountRef.current is used as a dependency to re-run timers on retry
-  // without needing visible to toggle, so we read it via a stable ref
   const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
@@ -280,6 +404,9 @@ export default function SpaceLoader({ visible, onExit, onRetry }) {
           animation: ${fadeIn ? "sl-card-in 0.48s cubic-bezier(0.34,1.3,0.64,1) both" : "sl-card-out 0.38s ease both"};
         }
       `}</style>
+
+      {/* Toast — above the blurred overlay, fully crisp */}
+      <ColdStartBanner visible={visible} />
 
       <div
         className="sl-overlay"
