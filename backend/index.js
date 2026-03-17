@@ -22,6 +22,16 @@ const rooms = {};
 const proximityState = {};
 const lockedPair     = {};
 
+// ── Active interactions ───────────────────────────────────────────────────────
+// Maps socketId → socketId for each participant of an active interaction.
+// If A and B are interacting: activeInteractions.get(A) === B and vice-versa.
+const activeInteractions = new Map();
+
+// Helper: find which room a socket is currently in
+function getRoomIdForSocket(socketId) {
+  return Object.keys(rooms).find((id) => rooms[id]?.players[socketId]);
+}
+
 // ── Spawn positions per charIndex (1-6) per map ───────────────────────────────
 // Spread 80px+ apart so no two players start within proximity range (50px).
 // charIndex is 1-based so index into array with charIndex-1.
@@ -184,7 +194,8 @@ io.on("connection", (socket) => {
         if (!proximityState[socket.id].has(otherId)) {
           const moverLock = lockedPair[socket.id];
           if (!moverLock || moverLock === otherId) {
-            socket.emit("nearby-user", other);
+            // Include socketId so the frontend can address interaction-request correctly
+            socket.emit("nearby-user", { ...other, socketId: otherId });
             lockedPair[socket.id] = otherId;
           }
 
@@ -193,7 +204,7 @@ io.on("connection", (socket) => {
 
           const otherLock = lockedPair[otherId];
           if (!otherLock || otherLock === socket.id) {
-            io.to(otherId).emit("nearby-user", mover);
+            io.to(otherId).emit("nearby-user", { ...mover, socketId: socket.id });
             lockedPair[otherId] = socket.id;
           }
 
@@ -221,8 +232,124 @@ io.on("connection", (socket) => {
     proximityState[socket.id] = currentNearby;
   });
 
+  // ── Interaction: request ──────────────────────────────────────────────────
+socket.on("interaction-request", ({ toPlayerId }) => {
+  const fromId = socket.id;
+  const toId = toPlayerId;
+
+  const roomId = getRoomIdForSocket(fromId);
+  if (!roomId) return;
+
+  const fromUsername = rooms[roomId]?.players[fromId]?.username;
+
+  console.log(`[interaction-request] ${fromUsername} -> ${toId}`);
+
+  io.to(toId).emit("interaction-request-received", {
+    fromPlayerId: fromId,
+    username: fromUsername,
+  });
+
+  socket.emit("interaction-request-sent", {
+    toPlayerId: toId,
+  });
+});
+
+  // ── Interaction: accepted ─────────────────────────────────────────────────
+  socket.on("interaction-accepted", ({ fromPlayerId, toPlayerId }) => {
+    const playerA = fromPlayerId;
+    const playerB = toPlayerId || socket.id;
+
+    const roomId = getRoomIdForSocket(playerA);
+    if (!roomId || getRoomIdForSocket(playerB) !== roomId) return;
+
+    // Guard: don't create a duplicate interaction
+    if (activeInteractions.has(playerA) || activeInteractions.has(playerB)) return;
+
+    activeInteractions.set(playerA, playerB);
+    activeInteractions.set(playerB, playerA);
+
+    const username_A = rooms[roomId].players[playerA]?.username;
+    const username_B = rooms[roomId].players[playerB]?.username;
+
+    console.log(`[interaction-started] ${username_A} <-> ${username_B}`);
+
+    io.to(playerA).emit("interaction-started", { playerA, playerB });
+    io.to(playerB).emit("interaction-started", { playerA, playerB });
+  });
+
+  // ── Interaction: declined ─────────────────────────────────────────────────
+  socket.on("interaction-declined", ({ fromPlayerId, toPlayerId }) => {
+    const declinedBy = toPlayerId || socket.id;
+    const notifyId   = fromPlayerId;
+
+    const username = (() => {
+      const r = getRoomIdForSocket(declinedBy);
+      return r ? rooms[r].players[declinedBy]?.username : null;
+    })();
+
+    console.log(`[interaction-declined] ${username} declined ${notifyId}`);
+
+    io.to(notifyId).emit("interaction-declined", {
+      fromPlayerId: declinedBy,
+      username,
+    });
+  });
+
+  // ── Interaction: ended (explicit) ─────────────────────────────────────────
+  socket.on("interaction-ended", ({ toPlayerId } = {}) => {
+    const initiator = socket.id;
+    const partner   = toPlayerId || activeInteractions.get(initiator);
+
+    if (!partner) return;
+
+    activeInteractions.delete(initiator);
+    activeInteractions.delete(partner);
+
+    console.log(`[interaction-ended] ${initiator} ended interaction with ${partner}`);
+
+    io.to(initiator).emit("interaction-ended", { byPlayerId: initiator });
+    io.to(partner).emit("interaction-ended",   { byPlayerId: initiator });
+  });
+
+  // ── Private message (interaction chat) ───────────────────────────────────
+  socket.on("private-message", ({ roomId: rid, toUsername, text, from }) => {
+    if (!text?.trim()) return;
+    // Look up by username within the room
+    const targetId = Object.entries(rooms[rid]?.players || {})
+      .find(([, p]) => p.username === toUsername)?.[0];
+    if (targetId) {
+      io.to(targetId).emit("private-message", {
+        from,
+        text: text.trim().slice(0, 300),
+        ts: Date.now(),
+      });
+    }
+  });
+
+  // ── Interaction: cancelled (requester backs out before answer) ────────────
+  socket.on("interaction-cancelled", ({ toPlayerId, toUsername, roomId: rid }) => {
+    // Support lookup by socketId or by username
+    let targetId = toPlayerId;
+    if (!targetId && toUsername && rid) {
+      targetId = Object.entries(rooms[rid]?.players || {})
+        .find(([, p]) => p.username === toUsername)?.[0];
+    }
+    if (targetId) {
+      io.to(targetId).emit("interaction-cancelled");
+    }
+  });
+
   // ── Disconnect ────────────────────────────────────────────────────────────
   socket.on("disconnect", () => {
+    // Clean up any active interaction this socket was part of
+    if (activeInteractions.has(socket.id)) {
+      const partner = activeInteractions.get(socket.id);
+      activeInteractions.delete(socket.id);
+      activeInteractions.delete(partner);
+      io.to(partner).emit("interaction-ended", { byPlayerId: socket.id });
+      console.log(`[interaction-ended] ${socket.id} disconnected, ended interaction with ${partner}`);
+    }
+
     delete proximityState[socket.id];
     for (const [sid, pid] of Object.entries(lockedPair)) {
       if (pid === socket.id) {

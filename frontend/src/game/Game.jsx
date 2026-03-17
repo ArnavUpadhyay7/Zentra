@@ -34,13 +34,24 @@ export default function Game() {
   const [deafened,       setDeafened]       = useState(false);
   const [voiceActive,    setVoiceActive]    = useState(false);
   const [sidebarOpen,    setSidebarOpen]    = useState(true);
+  const [nearbyPlayer,   setNearbyPlayer]   = useState(null);
+
+  // ── E-key interaction request ─────────────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "e" && e.key !== "E") return;
+      if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+      if (!nearbyPlayer) return;
+      socket.emit("interaction-request", { toPlayerId: nearbyPlayer.playerId });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [nearbyPlayer]);
 
   // ── Phaser bootstrap ──────────────────────────────────────────────────────
   useEffect(() => {
     if (socket.disconnected) socket.connect();
 
-    // Spawn position mirrors the server's SPAWNS table — must be set
-    // BEFORE new Phaser.Game() so World.create() reads it on first tick.
     const SPAWNS = {
       "indoor":       [[416,240],[316,240],[516,240],[416,160],[316,320],[516,320]],
       "tiny-dungeon": [[416,320],[316,320],[516,320],[416,220],[316,420],[516,420]],
@@ -76,15 +87,12 @@ export default function Game() {
     game.events.once("ready", () => {
       game.registry.set("myId", socket.id);
       window.__vsGameData.myId = socket.id;
-      // Safety net for direct URL access — Landing already handles normal join flow
       if (!state?.charIndex) socket.emit("join-room", { roomId, username });
     });
 
     socket.on("chat-message", ({ username: from, text, ts }) =>
       setGroupMessages(prev => [...prev, { from, text, ts, self: false }]));
 
-    // nearby-user: server sends full player object {username, x, y, charIndex}
-    // Clear history if it's a new person, auto-switch to nearby tab
     socket.on("nearby-user", (player) => {
       setNearbyUser(prev => {
         if (prev !== player.username) setNearbyMessages([]);
@@ -92,13 +100,14 @@ export default function Game() {
       });
       setVoiceActive(true);
       setActiveTab("nearby");
+      setNearbyPlayer({ playerId: player.socketId, username: player.username });
     });
 
-    // nearby-left: partner walked away — reset and go back to group tab
     socket.on("nearby-left", () => {
       setNearbyUser(null);
       setVoiceActive(false);
       setActiveTab("group");
+      setNearbyPlayer(null);
     });
 
     socket.on("nearby-message", ({ username: from, text, ts }) =>
@@ -174,6 +183,10 @@ export default function Game() {
           0%, 100% { transform: scale(1); opacity: 0.6; }
           50%       { transform: scale(2.2); opacity: 0; }
         }
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+          to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
       `}</style>
 
       <div
@@ -188,6 +201,25 @@ export default function Game() {
 
         {/* ── Game Canvas ───────────────────────────────────────────────── */}
         <div ref={gameRef} className="overflow-hidden bg-[#16120E] relative">
+
+          {/* ── E-to-talk prompt ──────────────────────────────────────── */}
+          {nearbyPlayer && (
+            <div
+              className="absolute bottom-6 left-1/2 z-40 pointer-events-none"
+              style={{ animation: "fadeUp 0.2s ease both", transform: "translateX(-50%)" }}
+            >
+              <div className="flex items-center gap-2.5 px-4 py-2 rounded-xl border border-[rgba(232,226,218,0.14)] bg-[#16120E]/90 backdrop-blur-md shadow-2xl whitespace-nowrap">
+                <kbd className="flex items-center justify-center w-6 h-6 rounded-md bg-[rgba(250,247,242,0.1)] border border-[rgba(232,226,218,0.25)] font-mono text-[11px] font-bold text-[#FAF7F2] leading-none">
+                  E
+                </kbd>
+                <span className="font-mono text-[11px] tracking-[0.04em] text-[#9C9188]">
+                  Talk to{" "}
+                  <span className="text-[#FAF7F2] font-semibold">{nearbyPlayer.username}</span>
+                </span>
+              </div>
+            </div>
+          )}
+
           <button
             onClick={() => setSidebarOpen(p => !p)}
             title={sidebarOpen ? "Close chat" : "Open chat"}
