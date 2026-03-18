@@ -24,9 +24,6 @@ const lockedPair = {};
 // socketId → socketId  (active accepted interaction)
 const activeInteractions = new Map();
 
-// socketId → socketId  (pending request — A waiting for B to respond)
-const pendingRequests = new Map();
-
 function getRoomIdForSocket(socketId) {
   return Object.keys(rooms).find((id) => rooms[id]?.players[socketId]);
 }
@@ -75,15 +72,6 @@ function clearInteraction(a, b) {
   }
 
   console.log(`[clearInteraction] ended ${nameA} <-> ${nameB}`);
-}
-
-// Cancels a pending request without ending an interaction
-function cancelPendingRequest(fromId, toId) {
-  if (pendingRequests.get(fromId) === toId) {
-    pendingRequests.delete(fromId);
-    io.to(toId).emit("interaction-cancelled");
-    console.log(`[pendingRequest] cancelled ${fromId} → ${toId}`);
-  }
 }
 
 const SPAWNS = {
@@ -219,10 +207,6 @@ io.on("connection", (socket) => {
       if (gone) {
         console.log(`[proximity] exited: ${me.username} left ${other?.username ?? myPartner}`);
 
-        // Cancel any pending request between them
-        if (pendingRequests.get(socket.id) === myPartner) cancelPendingRequest(socket.id, myPartner);
-        if (pendingRequests.get(myPartner) === socket.id) cancelPendingRequest(myPartner, socket.id);
-
         if (activeInteractions.get(socket.id) === myPartner) {
           // clearInteraction handles nearby-left + lockedPair cleanup
           clearInteraction(socket.id, myPartner);
@@ -246,23 +230,14 @@ io.on("connection", (socket) => {
     if (!toId || !io.sockets.sockets.has(toId)) {
       console.log("[interaction-request] REJECTED — target not found"); return;
     }
-    // Must be proximity-paired (prevents requests after walking away)
-    if (lockedPair[fromId] !== toId || lockedPair[toId] !== fromId) {
-      console.log("[interaction-request] REJECTED — not proximity-paired"); return;
-    }
     if (activeInteractions.has(fromId)) {
       console.log("[interaction-request] REJECTED — sender already interacting"); return;
     }
     if (activeInteractions.has(toId)) {
       console.log("[interaction-request] REJECTED — receiver already interacting"); return;
     }
-    // Prevent duplicate pending requests
-    if (pendingRequests.has(fromId)) {
-      console.log("[interaction-request] REJECTED — request already pending"); return;
-    }
 
     const fromUsername = getUsername(fromId) ?? "Someone";
-    pendingRequests.set(fromId, toId);
 
     io.to(toId).emit("interaction-request-received", { fromPlayerId: fromId, username: fromUsername });
     socket.emit("interaction-request-sent");
@@ -271,23 +246,27 @@ io.on("connection", (socket) => {
 
   // ── Interaction: accepted ────────────────────────────────────────────────
   socket.on("interaction-accepted", ({ fromPlayerId, toPlayerId }) => {
-    const playerA = fromPlayerId;          // original requester
-    const playerB = toPlayerId || socket.id; // acceptor
-
-    // Verify the pending request still exists
-    if (pendingRequests.get(playerA) !== playerB) {
-      console.log("[interaction-accepted] REJECTED — no matching pending request"); return;
-    }
-    pendingRequests.delete(playerA);
+    const playerA = fromPlayerId;
+    const playerB = toPlayerId || socket.id;
 
     const roomId = getRoomIdForSocket(playerA);
     if (!roomId || getRoomIdForSocket(playerB) !== roomId) {
       console.log("[interaction-accepted] REJECTED — room mismatch"); return;
     }
 
-    // Clear any stale interactions
-    if (activeInteractions.has(playerA)) clearInteraction(playerA, activeInteractions.get(playerA));
-    if (activeInteractions.has(playerB)) clearInteraction(playerB, activeInteractions.get(playerB));
+    // Force-clear any stale interactions before starting new one
+    if (activeInteractions.has(playerA)) {
+      const stale = activeInteractions.get(playerA);
+      console.log("[interaction-accepted] clearing stale interaction for A:", stale);
+      activeInteractions.delete(playerA);
+      activeInteractions.delete(stale);
+    }
+    if (activeInteractions.has(playerB)) {
+      const stale = activeInteractions.get(playerB);
+      console.log("[interaction-accepted] clearing stale interaction for B:", stale);
+      activeInteractions.delete(playerB);
+      activeInteractions.delete(stale);
+    }
 
     activeInteractions.set(playerA, playerB);
     activeInteractions.set(playerB, playerA);
@@ -296,7 +275,6 @@ io.on("connection", (socket) => {
     const usernameB = rooms[roomId].players[playerB]?.username;
     console.log(`[interaction-started] ${usernameA} <-> ${usernameB}`);
 
-    // Include both usernames in payload — frontend must not rely on stale refs
     io.to(playerA).emit("interaction-started", {
       playerA, playerB, usernameA, usernameB, otherUsername: usernameB,
     });
@@ -322,12 +300,9 @@ io.on("connection", (socket) => {
     clearInteraction(socket.id, partner);
   });
 
-  // ── Interaction: cancelled (sender backs out) ────────────────────────────
+  // ── Interaction: cancelled (sender backs out before B responds) ──────────
   socket.on("interaction-cancelled", ({ toPlayerId }) => {
-    const toId = toPlayerId;
-    if (pendingRequests.get(socket.id) === toId) {
-      cancelPendingRequest(socket.id, toId);
-    }
+    if (toPlayerId) io.to(toPlayerId).emit("interaction-cancelled");
   });
 
   // ── Private message ──────────────────────────────────────────────────────
@@ -341,15 +316,6 @@ io.on("connection", (socket) => {
   // ── Disconnect ───────────────────────────────────────────────────────────
   socket.on("disconnect", () => {
     console.log("socket disconnected:", socket.id);
-
-    // Cancel any pending requests
-    for (const [fromId, toId] of pendingRequests.entries()) {
-      if (fromId === socket.id || toId === socket.id) {
-        if (fromId === socket.id) io.to(toId).emit("interaction-cancelled");
-        else io.to(fromId).emit("interaction-cancelled");
-        pendingRequests.delete(fromId);
-      }
-    }
 
     // End active interaction
     if (activeInteractions.has(socket.id)) {

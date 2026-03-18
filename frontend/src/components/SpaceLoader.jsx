@@ -16,24 +16,35 @@ const TIMED_MESSAGES = [
 ];
 
 // ── Cold-start toast ──────────────────────────────────────────────────────────
-// Keyframes animate only opacity/translateY/scale so -translate-x-1/2 on the
-// wrapper handles horizontal centering permanently without being overridden.
-// Two lines for shimmer's background-clip:text — no Tailwind equivalent.
 const TOAST_KF = `
-  @keyframes csb-in  { from{opacity:0;transform:translateY(-14px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} }
-  @keyframes csb-out { from{opacity:1;transform:translateY(0) scale(1)} to{opacity:0;transform:translateY(-10px) scale(0.98)} }
-  @keyframes csb-shimmer { 0%{background-position:200% center} 100%{background-position:-200% center} }
-  @keyframes csb-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(1.7)} }
-  .csb-in      { animation: csb-in  0.44s cubic-bezier(0.16,1,0.3,1) both }
-  .csb-out     { animation: csb-out 0.28s ease both }
-  .csb-shimmer { background:linear-gradient(90deg,rgba(245,240,232,.5) 0%,rgba(245,240,232,.95) 45%,rgba(245,240,232,.5) 90%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:csb-shimmer 4s linear infinite }
-  .csb-dot     { animation: csb-dot 2.2s ease-in-out infinite }
+  @keyframes csb-in  {
+    from { opacity:0; transform:translateY(-18px) scale(0.96); }
+    to   { opacity:1; transform:translateY(0)     scale(1);    }
+  }
+  @keyframes csb-out {
+    from { opacity:1; transform:translateY(0)     scale(1);    }
+    to   { opacity:0; transform:translateY(-12px) scale(0.97); }
+  }
+  @keyframes csb-dot {
+    0%,100% { opacity:1;   transform:scale(1);   }
+    50%     { opacity:.35; transform:scale(1.8); }
+  }
+  @keyframes csb-pulse {
+    0%,100% { box-shadow: 0 0 0 0   rgba(232,99,42,0.4); }
+    60%     { box-shadow: 0 0 0 8px rgba(232,99,42,0);   }
+  }
+  .csb-in  { animation: csb-in  0.48s cubic-bezier(0.16,1,0.3,1) both; }
+  .csb-out { animation: csb-out 0.28s ease both; }
+  .csb-dot { animation: csb-dot 2.4s ease-in-out infinite; }
+  .csb-icon-pulse { animation: csb-pulse 2.8s ease-out infinite; }
 `;
 
 function ColdStartBanner({ visible }) {
   const [show,      setShow]      = useState(false);
   const [expanded,  setExpanded]  = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [whyHover,  setWhyHover]  = useState(false);
+  const [xHover,    setXHover]    = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -52,82 +63,197 @@ function ColdStartBanner({ visible }) {
     <>
       <style>{TOAST_KF}</style>
 
-      {/* -translate-x-1/2 stays on the element, keyframes never touch X */}
       <div
-        className={`${active ? "csb-in" : "csb-out"} fixed top-5 left-1/2 -translate-x-1/2 z-[400] w-[min(480px,calc(100vw-32px))] ${active ? "pointer-events-auto" : "pointer-events-none"}`}
+        className={`${active ? "csb-in" : "csb-out"} fixed top-5 left-1/2 -translate-x-1/2 z-[400] ${active ? "pointer-events-auto" : "pointer-events-none"}`}
+        style={{ width: "min(520px, calc(100vw - 32px))" }}
       >
-        {/* Subtle outer glow */}
-        <div className="absolute -inset-px rounded-[22px] pointer-events-none shadow-[0_0_0_1px_rgba(232,99,42,0.15),0_0_32px_rgba(232,99,42,0.08)]" />
+        {/* Card shell */}
+        <div style={{
+          position:     "relative",
+          borderRadius: 20,
+          overflow:     "hidden",
+          background:   "linear-gradient(160deg, #252018 0%, #1A1814 55%, #1F1C18 100%)",
+          border:       "1px solid rgba(255,255,255,0.1)",
+          boxShadow: [
+            "0 0 0 1px rgba(255,255,255,0.04) inset",
+            "0 28px 72px rgba(8,7,6,0.6)",
+            "0 8px 24px  rgba(8,7,6,0.38)",
+            "0 0  90px   rgba(232,99,42,0.1)",
+          ].join(", "),
+        }}>
 
-        {/* Card */}
-        <div className="relative rounded-[21px] overflow-hidden bg-[linear-gradient(150deg,#222018_0%,#1A1814_50%,#1E1C17_100%)] border border-white/[0.09] shadow-[0_0_0_1px_rgba(255,255,255,0.03)_inset,0_20px_56px_rgba(26,24,20,0.55),0_6px_18px_rgba(26,24,20,0.38)]">
-
-          {/* Top accent line */}
-          <div className="h-px bg-[linear-gradient(90deg,transparent_0%,rgba(232,99,42,0.4)_20%,rgba(240,168,122,0.95)_50%,rgba(232,99,42,0.4)_80%,transparent_100%)]" />
+          {/* Top accent bar */}
+          <div style={{
+            height:     2,
+            background: "linear-gradient(90deg, transparent 0%, rgba(232,99,42,0.45) 15%, rgba(248,175,125,1) 50%, rgba(232,99,42,0.45) 85%, transparent 100%)",
+          }} />
 
           {/* ── Main row ── */}
-          <div className="flex items-center gap-4 px-5 py-4">
+          <div style={{
+            display:    "flex",
+            alignItems: "center",
+            gap:        18,
+            padding:    "20px 20px 20px 20px",
+          }}>
 
-            {/* Icon */}
-            <div className="w-11 h-11 rounded-2xl shrink-0 flex items-center justify-center text-xl bg-[linear-gradient(135deg,rgba(232,99,42,0.18)_0%,rgba(232,99,42,0.07)_100%)] border border-[rgba(232,99,42,0.2)]">
+            {/* Icon with animated pulse ring */}
+            <div
+              className="csb-icon-pulse"
+              style={{
+                flexShrink:     0,
+                width:          54,
+                height:         54,
+                borderRadius:   16,
+                display:        "flex",
+                alignItems:     "center",
+                justifyContent: "center",
+                fontSize:       26,
+                background:     "linear-gradient(145deg, rgba(232,99,42,0.2) 0%, rgba(232,99,42,0.07) 100%)",
+                border:         "1px solid rgba(232,99,42,0.28)",
+              }}
+            >
               🌙
             </div>
 
-            {/* Text block */}
-            <div className="flex-1 min-w-0 py-0.5">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="csb-dot inline-block w-1.5 h-1.5 rounded-full bg-[#E8632A] shrink-0" />
-                <span className="font-mono text-[9px] font-medium tracking-[0.18em] uppercase text-[#E8632A]/80">
+            {/* Text */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {/* Eyebrow row */}
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
+                <span
+                  className="csb-dot"
+                  style={{
+                    display:      "block",
+                    flexShrink:   0,
+                    width:        6,
+                    height:       6,
+                    borderRadius: "50%",
+                    background:   "#E8632A",
+                  }}
+                />
+                <span style={{
+                  fontFamily:    "'DM Mono', monospace",
+                  fontSize:      10,
+                  fontWeight:    500,
+                  letterSpacing: "0.18em",
+                  textTransform: "uppercase",
+                  color:         "rgba(232,99,42,0.7)",
+                }}>
                   Heads up
                 </span>
               </div>
-              <span className="csb-shimmer block text-[14px] font-semibold tracking-[-0.02em] leading-snug">
+
+              {/* Primary message */}
+              <p style={{
+                margin:        0,
+                fontFamily:    "'Plus Jakarta Sans', sans-serif",
+                fontSize:      15,
+                fontWeight:    600,
+                letterSpacing: "-0.015em",
+                lineHeight:    1.4,
+                color:         "rgba(245,240,232,0.95)",
+              }}>
                 First attempt may take ~30 seconds
-              </span>
+              </p>
+
+              {/* Sub-line */}
+              <p style={{
+                margin:     "5px 0 0",
+                fontFamily: "'Plus Jakarta Sans', sans-serif",
+                fontSize:   13,
+                lineHeight: 1.55,
+                color:      "rgba(245,240,232,0.42)",
+              }}>
+                The server wakes on first connection — hang tight.
+              </p>
             </div>
 
-            {/* Actions */}
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Why toggle */}
+            {/* Action buttons stacked */}
+            <div style={{
+              flexShrink:    0,
+              display:       "flex",
+              flexDirection: "column",
+              alignItems:    "stretch",
+              gap:           8,
+              minWidth:      72,
+            }}>
+              {/* Why? toggle */}
               <button
                 onClick={() => setExpanded(e => !e)}
-                className={`font-mono text-[9px] font-medium tracking-[0.13em] uppercase rounded-lg px-3 py-2 border cursor-pointer transition-all duration-150 whitespace-nowrap
-                  ${expanded
-                    ? "text-[#F0A87A] bg-[rgba(232,99,42,0.14)] border-[rgba(232,99,42,0.3)]"
-                    : "text-[#E8632A] bg-[rgba(232,99,42,0.07)] border-[rgba(232,99,42,0.16)] hover:bg-[rgba(232,99,42,0.14)] hover:border-[rgba(232,99,42,0.3)]"
-                  }`}
+                onMouseEnter={() => setWhyHover(true)}
+                onMouseLeave={() => setWhyHover(false)}
+                style={{
+                  fontFamily:    "'DM Mono', monospace",
+                  fontSize:      10,
+                  fontWeight:    500,
+                  letterSpacing: "0.13em",
+                  textTransform: "uppercase",
+                  color:         expanded || whyHover ? "#F0A87A" : "#E8632A",
+                  background:    expanded || whyHover ? "rgba(232,99,42,0.18)" : "rgba(232,99,42,0.08)",
+                  border:        `1px solid ${expanded || whyHover ? "rgba(232,99,42,0.38)" : "rgba(232,99,42,0.2)"}`,
+                  borderRadius:  10,
+                  padding:       "9px 0",
+                  cursor:        "pointer",
+                  textAlign:     "center",
+                  transition:    "all 0.15s ease",
+                }}
               >
-                {expanded ? "close ↑" : "why? ↓"}
+                {expanded ? "Close ↑" : "Why? ↓"}
               </button>
 
               {/* Dismiss */}
               <button
                 onClick={() => setDismissed(true)}
-                className="w-8 h-8 rounded-xl border border-white/[0.08] bg-transparent hover:bg-white/[0.06] hover:border-white/[0.16] flex items-center justify-center cursor-pointer text-xs leading-none text-white/25 hover:text-white/50 transition-all duration-150"
+                onMouseEnter={() => setXHover(true)}
+                onMouseLeave={() => setXHover(false)}
+                style={{
+                  fontFamily:    "'DM Mono', monospace",
+                  fontSize:      10,
+                  fontWeight:    500,
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                  color:         xHover ? "rgba(245,240,232,0.55)" : "rgba(245,240,232,0.22)",
+                  background:    xHover ? "rgba(255,255,255,0.07)" : "transparent",
+                  border:        `1px solid ${xHover ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.08)"}`,
+                  borderRadius:  10,
+                  padding:       "9px 0",
+                  cursor:        "pointer",
+                  textAlign:     "center",
+                  transition:    "all 0.15s ease",
+                }}
               >
-                ✕
+                Dismiss
               </button>
             </div>
           </div>
 
           {/* ── Expandable detail ── */}
-          <div
-            className="overflow-hidden transition-[max-height] duration-[380ms] ease-[cubic-bezier(0.16,1,0.3,1)]"
-            style={{ maxHeight: expanded ? 160 : 0 }}
-          >
-            {/* Divider */}
-            <div className="mx-5 h-px bg-white/[0.06]" />
+          <div style={{
+            overflow:   "hidden",
+            maxHeight:  expanded ? 200 : 0,
+            transition: "max-height 0.42s cubic-bezier(0.16,1,0.3,1)",
+          }}>
+            <div style={{ margin: "0 20px", height: 1, background: "rgba(255,255,255,0.07)" }} />
 
-            <div className="px-5 py-4">
-              {/* Info card */}
-              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] px-4 py-3.5">
-                <p className="m-0 text-[13px] leading-[1.75] text-white/50">
+            <div style={{ padding: "18px 20px 22px" }}>
+              <div style={{
+                borderRadius: 14,
+                border:       "1px solid rgba(255,255,255,0.07)",
+                background:   "rgba(255,255,255,0.03)",
+                padding:      "16px 18px",
+              }}>
+                <p style={{
+                  margin:     0,
+                  fontFamily: "'Plus Jakarta Sans', sans-serif",
+                  fontSize:   13,
+                  lineHeight: 1.8,
+                  color:      "rgba(245,240,232,0.5)",
+                }}>
                   This app runs on Render's{" "}
-                  <span className="text-white/75 font-semibold">free tier</span>
+                  <span style={{ color: "rgba(245,240,232,0.85)", fontWeight: 600 }}>free tier</span>
                   {" "}— the server sleeps after{" "}
-                  <span className="text-white/75 font-semibold">15 min</span>
+                  <span style={{ color: "rgba(245,240,232,0.85)", fontWeight: 600 }}>15 min</span>
                   {" "}of inactivity. The first connection wakes it up, which usually takes{" "}
-                  <span className="text-[#E8632A] font-semibold">20–30 seconds</span>
+                  <span style={{ color: "#E8632A", fontWeight: 600 }}>20–30 seconds</span>
                   . Just hang tight, or hit Retry if it times out.
                 </p>
               </div>
@@ -511,17 +637,12 @@ export default function SpaceLoader({ visible, onExit, onRetry }) {
                   onMouseEnter={() => setExitHover(true)}
                   onMouseLeave={() => setExitHover(false)}
                   style={{
-                    flex: 1,
-                    padding: "9px 0",
-                    borderRadius: 10,
+                    flex: 1, padding: "9px 0", borderRadius: 10,
                     border: `1.5px solid ${exitHover ? "#D4C9B8" : "#E8E2DA"}`,
                     background: exitHover ? "#F3EFE8" : "transparent",
                     color: exitHover ? "#1A1814" : "#6B6359",
-                    fontFamily: "'DM Mono', monospace",
-                    fontSize: 10,
-                    fontWeight: 500,
-                    letterSpacing: "0.16em",
-                    textTransform: "uppercase",
+                    fontFamily: "'DM Mono', monospace", fontSize: 10, fontWeight: 500,
+                    letterSpacing: "0.16em", textTransform: "uppercase",
                     cursor: "pointer",
                     transition: "background 0.18s ease, color 0.18s ease, border-color 0.18s ease",
                   }}
@@ -533,17 +654,12 @@ export default function SpaceLoader({ visible, onExit, onRetry }) {
                   onMouseEnter={() => setRetryHover(true)}
                   onMouseLeave={() => setRetryHover(false)}
                   style={{
-                    flex: 1,
-                    padding: "9px 0",
-                    borderRadius: 10,
+                    flex: 1, padding: "9px 0", borderRadius: 10,
                     border: `1.5px solid ${retryHover ? "#E8632A" : "#E8E2DA"}`,
                     background: retryHover ? "#E8632A" : "transparent",
                     color: retryHover ? "#FAF7F2" : "#E8632A",
-                    fontFamily: "'DM Mono', monospace",
-                    fontSize: 10,
-                    fontWeight: 500,
-                    letterSpacing: "0.16em",
-                    textTransform: "uppercase",
+                    fontFamily: "'DM Mono', monospace", fontSize: 10, fontWeight: 500,
+                    letterSpacing: "0.16em", textTransform: "uppercase",
                     cursor: "pointer",
                     transition: "background 0.18s ease, color 0.18s ease, border-color 0.18s ease",
                   }}

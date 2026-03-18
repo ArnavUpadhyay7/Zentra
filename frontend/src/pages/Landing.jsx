@@ -160,8 +160,7 @@ export default function Landing() {
   const [pendingUsername, setPendingUsername] = useState("");
   const [isLoading,       setIsLoading]       = useState(false);
 
-  // Store last attempted action so Retry can replay it
-  const lastActionRef = useRef(null); // { type: "create" | "join", payload }
+  const lastActionRef = useRef(null);
 
   // ── Lenis smooth scroll ──────────────────────────────────────────────────
   useEffect(() => {
@@ -247,11 +246,8 @@ export default function Landing() {
   const handleRetry = () => {
     const last = lastActionRef.current;
     if (!last) return;
-    if (last.type === "create") {
-      emitCreate(last.payload.username, last.payload.mapId);
-    } else if (last.type === "join") {
-      emitJoin(last.payload.username, last.payload.roomId);
-    }
+    if (last.type === "create") emitCreate(last.payload.username, last.payload.mapId);
+    else if (last.type === "join") emitJoin(last.payload.username, last.payload.roomId);
   };
 
   return (
@@ -314,11 +310,29 @@ export default function Landing() {
 
       <CursorTrail />
 
+      {/*
+        ── WHY <Callout> IS OUTSIDE THE FILTERED WRAPPER ────────────────────────
+        The div below applies `filter`, `opacity`, and `pointerEvents` when
+        isLoading is true. Any element with a CSS `filter` or `transform` or
+        `will-change: transform` creates a new containing block for all
+        position:fixed AND position:sticky descendants.
+
+        This means position:sticky inside that div would be measured relative
+        to the filtered div, not the viewport — causing it to behave like
+        position:relative and scroll away immediately.
+
+        Fix: render <Callout> (which contains the sticky section) as a sibling
+        of the filtered wrapper, not a child of it. The loading blur/dim still
+        applies to Hero, HowItWorks, Features, FAQ, CTABanner, Footer — just
+        not to Callout, which is fine since users won't be loading while
+        scrolled to that section anyway.
+        ──────────────────────────────────────────────────────────────────────── */}
+
+      {/* Filtered wrapper — Hero through Features */}
       <div
         style={{
           background: "#FAF7F2",
           color: "#1A1814",
-          overflowX: "hidden",
           transition: "filter 0.4s ease, opacity 0.4s ease",
           filter:        isLoading ? "blur(2px) saturate(0.7)" : "none",
           opacity:       isLoading ? 0.6 : 1,
@@ -330,9 +344,24 @@ export default function Landing() {
           <Hero       onCTA={handleCTA} />
           <HowItWorks />
           <Features />
-          <Callout />
+        </main>
+      </div>
+
+      <Callout />
+
+      <div
+        style={{
+          background: "#FAF7F2",
+          color: "#1A1814",
+          transition: "filter 0.4s ease, opacity 0.4s ease",
+          filter:        isLoading ? "blur(2px) saturate(0.7)" : "none",
+          opacity:       isLoading ? 0.6 : 1,
+          pointerEvents: isLoading ? "none" : "auto",
+        }}
+      >
+        <main>
           <FAQ />
-          <CTABanner  onCTA={handleCTA} />
+          <CTABanner onCTA={handleCTA} />
         </main>
         <Footer />
       </div>

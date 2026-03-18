@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { HOW_IT_WORKS, FEATURES, STATS, FAQS } from "../constants/landing_cs";
 import ZentraWorld from "../components/ZentraWorld";
-
+import ImmersiveCallout from "../components/Immersivecallout";
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const C = {
   bg:        "#FAF7F2",
@@ -148,7 +148,6 @@ function CountUp({ target, suffix = "", duration = 1800 }) {
 }
 
 // ─── Magnetic button wrapper ──────────────────────────────────────────────────
-// Added `disabled` prop — buttons are visually/functionally locked while loading
 function MagneticBtn({ children, onClick, primary, disabled }) {
   const ref  = useRef(null);
   const [h, setH] = useState(false);
@@ -665,7 +664,6 @@ export function Hero({ onCTA, isLoading }) {
         @media (max-width: 600px) { .zh-hiw-section{padding:64px 16px!important;} }
         @media (max-width: 860px) { .zh-feat-header{flex-direction:column!important;align-items:flex-start!important;gap:16px!important;} .zh-feat-subtitle{text-align:left!important;} .zh-feat-row-desc{display:none!important;} }
         @media (max-width: 600px) { .zh-feat-section{padding:72px 20px!important;} }
-        @media (max-width: 700px) { .zh-callout-section{padding:72px 20px!important;} .zh-callout-inner{padding:48px 28px!important;border-radius:18px!important;} .zh-callout-quote{font-size:clamp(1.35rem,5.5vw,1.9rem)!important;} }
         .zh-faq-grid { display:grid; grid-template-columns:5fr 7fr; gap:24px; align-items:start; }
         @media (max-width: 800px) { .zh-faq-grid{display:none!important;} .zh-faq-mobile{display:flex!important;} .zh-faq-section{padding:72px 20px!important;} }
         .zh-faq-mobile { display:none; flex-direction:column; gap:10px; }
@@ -824,48 +822,9 @@ function FeatureRow({ f, index }) {
   );
 }
 
-// ─── CALLOUT ──────────────────────────────────────────────────────────────────
-function PresenceDots() {
-  return (
-    <>
-      <style>{`
-        @keyframes pd-pulse-0{0%,100%{opacity:.3;transform:scale(1) translateX(0)}50%{opacity:.7;transform:scale(1.3) translateX(3px)}}
-        @keyframes pd-pulse-1{0%,100%{opacity:.45;transform:scale(1) translateX(0)}50%{opacity:.85;transform:scale(1.4) translateX(0)}}
-        @keyframes pd-pulse-2{0%,100%{opacity:.3;transform:scale(1) translateX(0)}50%{opacity:.7;transform:scale(1.3) translateX(-3px)}}
-        @keyframes pd-row-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
-      `}</style>
-      <div style={{ display:"inline-flex", alignItems:"center", gap:8, marginTop:32, animation:"pd-row-float 6s ease-in-out infinite" }}>
-        {[0,1,2].map(i=>(
-          <span key={i} style={{ display:"block", borderRadius:"50%", width:i===1?8:7, height:i===1?8:7, background:C.accent, animation:`pd-pulse-${i} ${3.8+i*0.7}s ease-in-out infinite`, animationDelay:`${i*0.55}s` }} />
-        ))}
-        <span style={{ fontFamily:F.mono, fontSize:9, letterSpacing:"0.14em", textTransform:"uppercase", color:C.inkLight, marginLeft:6 }}>people nearby</span>
-      </div>
-    </>
-  );
-}
-
+// ─── CALLOUT — delegate to ImmersiveCallout ───────────────────────────────────
 export function Callout() {
-  const [ref, inView] = useInView();
-  return (
-    <section className="zh-callout-section" style={{ background:C.bgAlt, padding:"140px 40px" }}>
-      <style>{`@keyframes callout-idle{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}`}</style>
-      <div style={{ maxWidth:1200, margin:"0 auto" }}>
-        <div ref={ref} className="zh-callout-inner" style={{ ...revealUp(inView,0,1300), animation:inView?"callout-idle 7s ease-in-out infinite":undefined, position:"relative", borderRadius:24, overflow:"hidden", padding:"96px 96px", cursor:"default", background:`linear-gradient(150deg, ${C.bg} 0%, #F0ECE4 60%, #EAE4DA 100%)`, border:`1.5px solid ${C.border}`, boxShadow:[`inset 0 1px 0 rgba(255,255,255,0.75)`,`0 1px 0 rgba(255,255,255,0.5)`,`0 24px 64px rgba(26,24,20,0.07)`,`0 6px 20px rgba(26,24,20,0.04)`].join(", ") }}>
-          <div style={{ position:"absolute", inset:0, pointerEvents:"none", opacity:0.018, backgroundImage:`url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`, backgroundSize:"180px" }} />
-          <div style={{ position:"absolute", top:0, left:0, width:4, height:"100%", background:`linear-gradient(to bottom, ${C.accent}, ${C.accent}00)`, borderRadius:"24px 0 0 24px" }} />
-          <div style={{ position:"absolute", top:-20, left:72, fontFamily:F.display, fontWeight:900, fontSize:280, color:C.accent, opacity:0.05, lineHeight:1, userSelect:"none", pointerEvents:"none" }}>"</div>
-          <div style={{ position:"relative", zIndex:1, maxWidth:700 }}>
-            <p style={{ fontFamily:F.mono, fontSize:10, letterSpacing:"0.18em", textTransform:"uppercase", color:C.accent, marginBottom:28 }}>The idea</p>
-            <blockquote className="zh-callout-quote" style={{ fontFamily:F.display, fontWeight:700, fontStyle:"italic", fontSize:"clamp(1.7rem, 3.2vw, 2.6rem)", color:C.ink, lineHeight:1.3, letterSpacing:"-0.015em", marginBottom:36 }}>
-              "The best remote conversations happen when they don't feel scheduled."
-            </blockquote>
-            <p style={{ fontFamily:F.body, fontSize:16, color:C.inkMid, lineHeight:1.8, maxWidth:540 }}>Spatial proximity gives conversation back its context. You see who's nearby, who's in a cluster, who's available. No calendar. No link. Just presence.</p>
-            <PresenceDots />
-          </div>
-        </div>
-      </div>
-    </section>
-  );
+  return <ImmersiveCallout />;
 }
 
 // ─── FAQ ──────────────────────────────────────────────────────────────────────
