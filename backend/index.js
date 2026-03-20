@@ -313,6 +313,12 @@ io.on("connection", (socket) => {
     if (targetId) io.to(targetId).emit("private-message", { from, text: text.trim().slice(0, 300), ts: Date.now() });
   });
 
+  // ── WebRTC signaling relay ───────────────────────────────────────────────
+  // Pure relay — no logic. Server just forwards to the target socket.
+  socket.on("webrtc-offer",         ({ to, offer })     => io.to(to).emit("webrtc-offer",         { from: socket.id, offer }));
+  socket.on("webrtc-answer",        ({ to, answer })    => io.to(to).emit("webrtc-answer",        { from: socket.id, answer }));
+  socket.on("webrtc-ice-candidate", ({ to, candidate }) => io.to(to).emit("webrtc-ice-candidate", { from: socket.id, candidate }));
+
   // ── Disconnect ───────────────────────────────────────────────────────────
   socket.on("disconnect", () => {
     console.log("socket disconnected:", socket.id);
