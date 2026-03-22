@@ -1,11 +1,10 @@
-require("dotenv").config();   // must be first — loads .env before anything reads process.env
-
+require("dotenv").config(); 
+const { AccessToken } = require("livekit-server-sdk");
 const express = require("express");
 const http    = require("http");
 const { Server } = require("socket.io");
 const { nanoid } = require("nanoid");
 const cors    = require("cors");
-const { AccessToken } = require("livekit-server-sdk");
 
 const app = express();
 app.use(cors());
