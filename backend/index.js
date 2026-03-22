@@ -1,11 +1,15 @@
+require("dotenv").config();   // must be first — loads .env before anything reads process.env
+
 const express = require("express");
 const http    = require("http");
 const { Server } = require("socket.io");
 const { nanoid } = require("nanoid");
 const cors    = require("cors");
+const { AccessToken } = require("livekit-server-sdk");
 
 const app = express();
 app.use(cors());
+app.use(express.json());
 
 const server = http.createServer(app);
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
@@ -14,6 +18,35 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
 
 const io = new Server(server, {
   cors: { origin: ALLOWED_ORIGINS, methods: ["GET", "POST"] },
+});
+
+// ── LiveKit token endpoint ────────────────────────────────────────────────────
+// Frontend calls this when an interaction starts to get a room-scoped token.
+app.get("/livekit-token", async (req, res) => {
+  const { roomId, userId } = req.query;
+
+  if (!roomId || !userId) {
+    return res.status(400).json({ error: "roomId and userId are required" });
+  }
+
+  const apiKey    = process.env.API_KEY;
+  const apiSecret = process.env.API_SECRET;
+
+  if (!apiKey || !apiSecret) {
+    return res.status(500).json({ error: "LiveKit credentials not configured" });
+  }
+
+  const token = new AccessToken(apiKey, apiSecret, { identity: userId });
+  token.addGrant({
+    roomJoin:     true,
+    room:         roomId,
+    canPublish:   true,
+    canSubscribe: true,
+  });
+
+  const jwt = await token.toJwt();
+  console.log("[LiveKit] token generated for", userId, "in room", roomId);
+  res.json({ token: jwt });
 });
 
 const rooms = {};
@@ -33,9 +66,6 @@ function getUsername(socketId) {
   return roomId ? (rooms[roomId].players[socketId]?.username ?? null) : null;
 }
 
-// Clears an active interaction, notifies both players, resets lockedPair.
-// If both players are still physically close, immediately re-pairs them so
-// neither needs to move before they can interact again.
 function clearInteraction(a, b) {
   activeInteractions.delete(a);
   activeInteractions.delete(b);
@@ -54,7 +84,6 @@ function clearInteraction(a, b) {
   io.to(a).emit("nearby-left", { id: b });
   io.to(b).emit("nearby-left", { id: a });
 
-  // Re-pair immediately if still in range — prevents needing to move before second attempt
   if (playerA && playerB) {
     const ENTER_RANGE = 80;
     const dx = playerA.x - playerB.x;
@@ -62,7 +91,6 @@ function clearInteraction(a, b) {
     if (dx * dx + dy * dy < ENTER_RANGE * ENTER_RANGE) {
       lockedPair[a] = b;
       lockedPair[b] = a;
-      // Small delay so frontend processes nearby-left before nearby-user
       setTimeout(() => {
         io.to(a).emit("nearby-user", { ...playerB, socketId: b });
         io.to(b).emit("nearby-user", { ...playerA, socketId: a });
@@ -93,7 +121,6 @@ function getSpawn(mapId, charIndex) {
 io.on("connection", (socket) => {
   console.log("socket connected:", socket.id);
 
-  // ── Create room ──────────────────────────────────────────────────────────
   socket.on("create-room", (data) => {
     const roomId = nanoid(8);
     const mapId  = data.mapId || "indoor";
@@ -107,7 +134,6 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("player-joined", { id: socket.id, username: data.username, players: rooms[roomId].players, mapId });
   });
 
-  // ── Join room ────────────────────────────────────────────────────────────
   socket.on("join-room", ({ roomId, username }) => {
     if (!rooms[roomId]) { socket.emit("join-error", { message: "Room does not exist" }); return; }
     if (rooms[roomId].players[socket.id]) return;
@@ -122,7 +148,6 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("player-joined", { id: socket.id, username, players: rooms[roomId].players, mapId });
   });
 
-  // ── Player move ──────────────────────────────────────────────────────────
   socket.on("player-move", ({ roomId, x, y, direction, flipX }) => {
     if (rooms[roomId]?.players[socket.id]) {
       rooms[roomId].players[socket.id].x = x;
@@ -131,19 +156,16 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("player-moved", { id: socket.id, x, y, direction, flipX });
   });
 
-  // ── Get room state ───────────────────────────────────────────────────────
   socket.on("get-room-state", ({ roomId }) => {
     if (!rooms[roomId]) return;
     socket.emit("room-state", { players: rooms[roomId].players });
   });
 
-  // ── Group chat ───────────────────────────────────────────────────────────
   socket.on("chat-message", ({ roomId, username, text }) => {
     if (!rooms[roomId] || !text?.trim()) return;
     socket.to(roomId).emit("chat-message", { username, text: text.trim().slice(0, 300), ts: Date.now() });
   });
 
-  // ── Nearby chat (proximity) ──────────────────────────────────────────────
   socket.on("nearby-message", ({ username, text }) => {
     if (!text?.trim()) return;
     const partnerId = lockedPair[socket.id];
@@ -151,7 +173,6 @@ io.on("connection", (socket) => {
     io.to(partnerId).emit("nearby-message", { username, text: text.trim().slice(0, 300), ts: Date.now() });
   });
 
-  // ── Proximity check ──────────────────────────────────────────────────────
   socket.on("check-proximity", () => {
     const roomId = getRoomIdForSocket(socket.id);
     if (!roomId) return;
@@ -162,7 +183,6 @@ io.on("connection", (socket) => {
     const ENTER_RANGE = 80;
     const LEAVE_RANGE = 100;
 
-    // Who is within enter range right now
     const nowNear = new Set();
     for (const [otherId, other] of Object.entries(players)) {
       if (otherId === socket.id) continue;
@@ -170,20 +190,13 @@ io.on("connection", (socket) => {
       if (dx * dx + dy * dy < ENTER_RANGE * ENTER_RANGE) nowNear.add(otherId);
     }
 
-    // ── Entry ──────────────────────────────────────────────────────────────
     for (const otherId of nowNear) {
-      // Already correctly paired — skip
       if (lockedPair[socket.id] === otherId && lockedPair[otherId] === socket.id) continue;
-
       const myLock    = lockedPair[socket.id];
       const theirLock = lockedPair[otherId];
-
-      // Clear stale one-sided locks before pairing
-      if (myLock && myLock !== otherId) continue;    // I'm locked to someone else
-      if (theirLock && theirLock !== socket.id) continue; // they're locked to someone else
-
+      if (myLock && myLock !== otherId) continue;
+      if (theirLock && theirLock !== socket.id) continue;
       const other = players[otherId];
-
       if (!lockedPair[socket.id]) {
         socket.emit("nearby-user", { ...other, socketId: otherId });
         lockedPair[socket.id] = otherId;
@@ -195,7 +208,6 @@ io.on("connection", (socket) => {
       console.log(`[proximity] entered: ${me.username} <-> ${other.username}`);
     }
 
-    // ── Exit ───────────────────────────────────────────────────────────────
     const myPartner = lockedPair[socket.id];
     if (myPartner && !nowNear.has(myPartner)) {
       const other = players[myPartner];
@@ -206,9 +218,7 @@ io.on("connection", (socket) => {
 
       if (gone) {
         console.log(`[proximity] exited: ${me.username} left ${other?.username ?? myPartner}`);
-
         if (activeInteractions.get(socket.id) === myPartner) {
-          // clearInteraction handles nearby-left + lockedPair cleanup
           clearInteraction(socket.id, myPartner);
         } else {
           socket.emit("nearby-left", { id: myPartner });
@@ -220,13 +230,10 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ── Interaction: request ─────────────────────────────────────────────────
   socket.on("interaction-request", ({ toPlayerId }) => {
     const fromId = socket.id;
     const toId   = toPlayerId;
-
     console.log("[interaction-request]", { from: fromId, to: toId });
-
     if (!toId || !io.sockets.sockets.has(toId)) {
       console.log("[interaction-request] REJECTED — target not found"); return;
     }
@@ -236,76 +243,54 @@ io.on("connection", (socket) => {
     if (activeInteractions.has(toId)) {
       console.log("[interaction-request] REJECTED — receiver already interacting"); return;
     }
-
     const fromUsername = getUsername(fromId) ?? "Someone";
-
     io.to(toId).emit("interaction-request-received", { fromPlayerId: fromId, username: fromUsername });
     socket.emit("interaction-request-sent");
     console.log(`[interaction-request] ${fromUsername} → ${toId}`);
   });
 
-  // ── Interaction: accepted ────────────────────────────────────────────────
   socket.on("interaction-accepted", ({ fromPlayerId, toPlayerId }) => {
     const playerA = fromPlayerId;
     const playerB = toPlayerId || socket.id;
-
-    const roomId = getRoomIdForSocket(playerA);
+    const roomId  = getRoomIdForSocket(playerA);
     if (!roomId || getRoomIdForSocket(playerB) !== roomId) {
       console.log("[interaction-accepted] REJECTED — room mismatch"); return;
     }
-
-    // Force-clear any stale interactions before starting new one
     if (activeInteractions.has(playerA)) {
       const stale = activeInteractions.get(playerA);
-      console.log("[interaction-accepted] clearing stale interaction for A:", stale);
-      activeInteractions.delete(playerA);
-      activeInteractions.delete(stale);
+      activeInteractions.delete(playerA); activeInteractions.delete(stale);
     }
     if (activeInteractions.has(playerB)) {
       const stale = activeInteractions.get(playerB);
-      console.log("[interaction-accepted] clearing stale interaction for B:", stale);
-      activeInteractions.delete(playerB);
-      activeInteractions.delete(stale);
+      activeInteractions.delete(playerB); activeInteractions.delete(stale);
     }
-
     activeInteractions.set(playerA, playerB);
     activeInteractions.set(playerB, playerA);
-
     const usernameA = rooms[roomId].players[playerA]?.username;
     const usernameB = rooms[roomId].players[playerB]?.username;
     console.log(`[interaction-started] ${usernameA} <-> ${usernameB}`);
-
-    io.to(playerA).emit("interaction-started", {
-      playerA, playerB, usernameA, usernameB, otherUsername: usernameB,
-    });
-    io.to(playerB).emit("interaction-started", {
-      playerA, playerB, usernameA, usernameB, otherUsername: usernameA,
-    });
+    io.to(playerA).emit("interaction-started", { playerA, playerB, usernameA, usernameB, otherUsername: usernameB });
+    io.to(playerB).emit("interaction-started", { playerA, playerB, usernameA, usernameB, otherUsername: usernameA });
   });
 
-  // ── Interaction: declined ────────────────────────────────────────────────
   socket.on("interaction-declined", ({ fromPlayerId, toPlayerId }) => {
     const declinedBy = toPlayerId || socket.id;
     const notifyId   = fromPlayerId;
-    pendingRequests.delete(notifyId);
     const uname = getUsername(declinedBy);
     console.log(`[interaction-declined] ${uname} declined ${notifyId}`);
     io.to(notifyId).emit("interaction-declined", { fromPlayerId: declinedBy, username: uname });
   });
 
-  // ── Interaction: ended (explicit by frontend) ────────────────────────────
   socket.on("interaction-ended", ({ toPlayerId } = {}) => {
     const partner = toPlayerId || activeInteractions.get(socket.id);
     if (!partner) return;
     clearInteraction(socket.id, partner);
   });
 
-  // ── Interaction: cancelled (sender backs out before B responds) ──────────
   socket.on("interaction-cancelled", ({ toPlayerId }) => {
     if (toPlayerId) io.to(toPlayerId).emit("interaction-cancelled");
   });
 
-  // ── Private message ──────────────────────────────────────────────────────
   socket.on("private-message", ({ roomId: rid, toUsername, text, from }) => {
     if (!text?.trim()) return;
     const targetId = Object.entries(rooms[rid]?.players || {})
@@ -313,22 +298,12 @@ io.on("connection", (socket) => {
     if (targetId) io.to(targetId).emit("private-message", { from, text: text.trim().slice(0, 300), ts: Date.now() });
   });
 
-  // ── WebRTC signaling relay ───────────────────────────────────────────────
-  // Pure relay — no logic. Server just forwards to the target socket.
-  socket.on("webrtc-offer",         ({ to, offer })     => io.to(to).emit("webrtc-offer",         { from: socket.id, offer }));
-  socket.on("webrtc-answer",        ({ to, answer })    => io.to(to).emit("webrtc-answer",        { from: socket.id, answer }));
-  socket.on("webrtc-ice-candidate", ({ to, candidate }) => io.to(to).emit("webrtc-ice-candidate", { from: socket.id, candidate }));
-
-  // ── Disconnect ───────────────────────────────────────────────────────────
   socket.on("disconnect", () => {
     console.log("socket disconnected:", socket.id);
-
-    // End active interaction
     if (activeInteractions.has(socket.id)) {
       const partner = activeInteractions.get(socket.id);
       clearInteraction(socket.id, partner);
     } else {
-      // Just proximity-paired — notify partner
       const partner = lockedPair[socket.id];
       if (partner) {
         io.to(partner).emit("nearby-left", { id: socket.id });
@@ -336,8 +311,6 @@ io.on("connection", (socket) => {
       }
       delete lockedPair[socket.id];
     }
-
-    // Remove from room
     for (const roomId in rooms) {
       const room = rooms[roomId];
       if (room.players[socket.id]) {

@@ -7,7 +7,7 @@ import {
   TabBtn, Message, EmptyState, ChatInput, ControlBtn,
   ChevronIcon, ShareIcon, CheckIcon, DoorIcon, MicIcon, HeadsetIcon,
 } from "./GameHelper";
-import { useWebRTC } from "./webRTC/useWebRTC";
+import { useLiveKit } from "./liveKit/useLiveKit";
 
 export default function Game() {
   const gameRef        = useRef(null);
@@ -19,7 +19,7 @@ export default function Game() {
   const { state }      = useLocation();
   const navigate       = useNavigate();
 
-  const { startCall, endCall, localStreamRef, audioElRef } = useWebRTC(socket);
+  const { joinRoom, leaveRoom, setMicEnabled, setSpeakerEnabled } = useLiveKit();
 
   const username  = state?.username  || localStorage.getItem("vs_username") || "Player";
   const charIndex = state?.charIndex || 1;
@@ -33,8 +33,8 @@ export default function Game() {
   const [nearbyDraft,    setNearbyDraft]    = useState("");
   const [nearbyUser,     setNearbyUser]     = useState(null);
   const [copied,         setCopied]         = useState(false);
-  const [micMuted,       setMicMuted]       = useState(true);  // start muted
-  const [deafened,       setDeafened]       = useState(true);  // start deafened
+  const [micMuted,       setMicMuted]       = useState(true);
+  const [deafened,       setDeafened]       = useState(true);
   const [voiceActive,    setVoiceActive]    = useState(false);
   const [sidebarOpen,    setSidebarOpen]    = useState(true);
   const [nearbyPlayer,     setNearbyPlayer]     = useState(null);
@@ -47,21 +47,20 @@ export default function Game() {
   const [activeInteraction, setActiveInteraction] = useState(false);
   const [disconnectedToast, setDisconnectedToast] = useState(null);
 
-  // ── Mic toggle — controls local track.enabled directly ───────────────────
+  // ── Mic toggle ───────────────────────────────────────────────────────────
   const handleMicToggle = () => {
     setMicMuted(prev => {
       const nextMuted = !prev;
-      const track = localStreamRef.current?.getAudioTracks()[0];
-      if (track) track.enabled = !nextMuted;
+      setMicEnabled(!nextMuted);   // true = mic on, false = muted
       return nextMuted;
     });
   };
 
-  // ── Speaker toggle — controls remote audio volume directly ────────────────
+  // ── Speaker toggle ────────────────────────────────────────────────────────
   const handleDeafenToggle = () => {
     setDeafened(prev => {
       const nextDeafened = !prev;
-      if (audioElRef.current) audioElRef.current.volume = nextDeafened ? 0 : 1;
+      setSpeakerEnabled(!nextDeafened); // true = can hear, false = deafened
       return nextDeafened;
     });
   };
@@ -120,20 +119,19 @@ export default function Game() {
       setConnectedToast(displayName);
       setTimeout(() => setConnectedToast(null), 2200);
 
-      // Unmute mic + speaker on interaction start
+      // Unmute mic + speaker
       setMicMuted(false);
       setDeafened(false);
 
-      // Start WebRTC — then apply unmuted state to actual tracks
-      startCall({ playerA, playerB }).then(() => {
-        const track = localStreamRef.current?.getAudioTracks()[0];
-        if (track) track.enabled = true;          // mic unmuted
-        if (audioElRef.current) audioElRef.current.volume = 1; // speaker on
+      // Join LiveKit room using the game roomId and socket.id as userId
+      joinRoom({ roomId, userId: socket.id, username }).then(() => {
+        setMicEnabled(true);
+        setSpeakerEnabled(true);
       });
     };
     socket.on("interaction-started", handler);
     return () => socket.off("interaction-started", handler);
-  }, []);
+  }, [roomId, username]);
 
   // ── interaction-declined ──────────────────────────────────────────────────
   useEffect(() => {
@@ -155,14 +153,13 @@ export default function Game() {
       setVoiceActive(false);
       setActiveTab("group");
       setNearbyMessages([]);
-      // Re-mute on interaction end
       setMicMuted(true);
       setDeafened(true);
       if (prevUser) {
         setDisconnectedToast(prevUser);
         setTimeout(() => setDisconnectedToast(null), 2200);
       }
-      endCall();
+      leaveRoom();
     };
     socket.on("interaction-ended", handler);
     return () => socket.off("interaction-ended", handler);
@@ -235,14 +232,13 @@ export default function Game() {
         setVoiceActive(false);
         setActiveTab("group");
         setNearbyMessages([]);
-        // Re-mute on proximity break during active interaction
         setMicMuted(true);
         setDeafened(true);
         if (prevUser) {
           setDisconnectedToast(prevUser);
           setTimeout(() => setDisconnectedToast(null), 2200);
         }
-        endCall();
+        leaveRoom();
       }
     });
 
@@ -283,7 +279,7 @@ export default function Game() {
     });
   };
 
-  const leaveRoom = () => { endCall(); socket.disconnect(); navigate("/"); };
+  const leaveGame = () => { leaveRoom(); socket.disconnect(); navigate("/"); };
 
   const sendGroup = () => {
     const text = groupDraft.trim();
@@ -546,7 +542,7 @@ export default function Game() {
               <span className="font-body text-[12px] font-medium text-[#9C9188] max-w-[100px] truncate">{username}</span>
             </div>
             <button
-              onClick={leaveRoom}
+              onClick={leaveGame}
               className="flex items-center gap-1.5 font-mono text-[10px] font-medium tracking-[0.1em] uppercase text-[#7A4444] hover:text-[#E05252] bg-[rgba(224,82,82,0.06)] hover:bg-[rgba(224,82,82,0.12)] border border-[rgba(224,82,82,0.12)] hover:border-[rgba(224,82,82,0.3)] rounded-lg px-3 py-[7px] cursor-pointer shrink-0 transition-all duration-150"
             >
               <DoorIcon />
